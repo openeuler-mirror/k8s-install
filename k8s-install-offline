@@ -136,11 +136,11 @@ else
     echo "安装k8s rpms..."
     cd rpms
     if [ "$nodetype" == "worker" ];then
-        rpm -ivh kubernetes-kubelet-*${dist}.${ARCH}.rpm kubernetes-node-*${dist}.${ARCH}.rpm
+        rpm -ivh kubernetes-kubelet-*${dist}.${ARCH}.rpm kubernetes-client-*${dist}.${ARCH}.rpm kubernetes-node-*${dist}.${ARCH}.rpm
     elif [ "$nodetype" == "master" ];then
         rpm -ivh kubernetes-*${dist}.${ARCH}.rpm
     else
-        echo "-n $nodetype is not support!" && exit
+        echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
     fi
     cd -
     systemctl enable kubelet

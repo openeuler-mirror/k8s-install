@@ -93,12 +93,12 @@ fi
 
 echo -e "\033[44;37m 安装 k8s rpms \033[0m"
 if [ "$nodetype" == "worker" ];then
-    yum install -y kubernetes-kubelet kubernetes-node
+    yum install -y kubernetes-kubelet kubernetes-client kubernetes-node
 elif [ "$nodetype" == "master" ];then
     yum install -y kubernetes-client kubernetes-kubeadm kubernetes-master kubernetes-kubelet kubernetes-node
     #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
 else
-    echo "-n $nodetype is not support!" && exit
+    echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
 fi
 if [ ! -d /opt/cni ];then
     echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
