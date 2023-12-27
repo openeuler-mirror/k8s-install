@@ -172,27 +172,33 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         fi
     done
     cd -
-    kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
-    #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
-    #cp config/kubeadm-template.yaml kubeadm.yaml
-    #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
-    #kubeadm init --config kubeadm.yaml
-    mkdir -p $HOME/.kube
-    cp /etc/kubernetes/admin.conf $HOME/.kube/config
-    cp /etc/kubernetes/admin.conf ~/.kube/config
-    chown $(id -u):$(id -g) $HOME/.kube/config
-    sed "s/ARCH/`arch`/g" config/flannel.yaml | kubectl apply -f - 
-    #mkdir -p /run/flannel;cp config/subnet.env /run/flannel/;cp config/10-flannel.conflist /etc/cni/net.d/ #In case files missing
-    sleep 5
-    echo -e "\033[44;37m 去除k8s污点 \033[0m"
-    master_name=$(kubectl get node | grep master | awk '{print $1}')
-    master_taint=$(kubectl describe node $master_name | grep Taints | awk '{print $2}') 
-    if [[ $master_taint = "<none>" ]];then
-        echo "不存在污点！"
+    if [ "$nodetype" == "master" ];then
+        kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
+		#默认使用参数配置(因为可做到无人工修改)，也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
+        #cp config/kubeadm-template.yaml kubeadm.yaml
+        #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
+        #kubeadm init --config kubeadm.yaml
+        mkdir -p $HOME/.kube
+        cp /etc/kubernetes/admin.conf $HOME/.kube/config
+        cp /etc/kubernetes/admin.conf ~/.kube/config
+        chown $(id -u):$(id -g) $HOME/.kube/config
+        sed "s/ARCH/`arch`/g" config/flannel.yaml | kubectl apply -f -
+        #mkdir -p /run/flannel;cp config/subnet.env /run/flannel/;cp config/10-flannel.conflist /etc/cni/net.d/ #In case files missing
+        sleep 5
+        echo -e "\033[44;37m 去除k8s污点 \033[0m"
+        master_name=$(kubectl get node | grep master | awk '{print $1}')
+        master_taint=$(kubectl describe node $master_name | grep Taints | awk '{print $2}')
+        if [[ $master_taint = "<none>" ]];then
+            echo "不存在污点！"
+        else
+            kubectl taint node $master_name $master_taint-
+            kubectl taint node $master_name node.kubernetes.io/not-ready-
+        fi
+        #rm -rf kubeadm.yaml
+        echo  -e "\033[44;37m master结点全部部署完成，请拷贝kubeadm join命令行备用 \033[0m"
+    elif [ "$nodetype" == "worker" ];then 
+        echo  -e "\033[44;37m 请运行master配置完成后提示的kubeadm join命令行 \033[0m"
     else
-        kubectl taint node $master_name $master_taint-
-        kubectl taint node $master_name node.kubernetes.io/not-ready-
+        echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
     fi
-    #rm -rf kubeadm.yaml
 fi
-echo  -e "\033[44;37m 全部部署正常完成 \033[0m"
