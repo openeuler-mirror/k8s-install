@@ -119,8 +119,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     systemctl disable firewalld.service
     sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
     swapoff -a
-    grep ^nameserver /etc/resolv.conf 
-    [[ $? == 0 ]] || (chmod a+w /etc/resolv.conf && echo "nameserver 114.114.114.114" >> /etc/resolv.conf)
+    grep ^nameserver /etc/resolv.conf || (chmod a+w /etc/resolv.conf && echo "nameserver 114.114.114.114" >> /etc/resolv.conf)
     #可根据版本需要编辑修改各镜像版本
     ${imagecmd}/flannel:v0.14.0
     ${imagecmd}/kube-proxy:v1.20.2
