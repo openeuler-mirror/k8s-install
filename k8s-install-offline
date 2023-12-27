@@ -145,9 +145,6 @@ else
     cd -
     systemctl enable kubelet
 fi
-if [ "x$onlyinstall" == "xk8s" ];then
-    echo "K8s 安装完成. Exit" && exit
-fi
 
 if [ ! -d /opt/cni ];then
     echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
@@ -155,6 +152,10 @@ if [ ! -d /opt/cni ];then
     mkdir -p /opt/cni
     ln -s /usr/libexec/cni /opt/cni/bin
 fi
+if [ "x$onlyinstall" == "xk8s" ];then
+    echo "K8s 安装完成. Exit" && exit
+fi
+
 if [ ! -f /etc/kubernetes/admin.conf ];then
     echo -e "\033[44;37m 设置k8s \033[0m"
     iptables -P FORWARD ACCEPT
