@@ -164,7 +164,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     swapoff -a
     echo -e "\033[44;37m 加载k8s镜像 \033[0m"
     cd tar-${ARCH}/
-    for i in `ls`;do
+    for i in `ls *.tar`;do
         if [ $usedocker == 1 ];then
             docker load -i $i
         else
@@ -174,7 +174,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     cd -
     if [ "$nodetype" == "master" ];then
         kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
-		#默认使用参数配置(因为可做到无人工修改)，也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
+        #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
         #cp config/kubeadm-template.yaml kubeadm.yaml
         #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
         #kubeadm init --config kubeadm.yaml
