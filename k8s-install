@@ -1,0 +1,151 @@
+#!/bin/bash
+set -e
+imagerepo=docker.ctyun.cn:60001/base-`arch`
+podnetwork=10.244.0.0/16
+usedocker=1
+ip=$(hostname -I | awk '{print $1}')
+name=$(hostname)
+
+help() {
+    echo "Usage:"
+    echo "Install: $0 <-i ONLYINSTALL>"
+    echo "Setup: $0 <-d DIST> <-n NODETYPE> <-t CONTAINERTYPE>"
+    echo "Other options: $0 [-c] [-h]"
+    echo "Description:"
+    echo "without -i will install and setup current node with -d -n and -t"
+    echo "-c reset and clean current node"
+    echo "-h print help message"
+    echo "-i ONLYINSTALL package docker or k8s, without any config"
+    echo "-d DIST, ctl2 or ctl3"
+    echo "-n NODETYPE, master or worker"
+    echo "-t CONTAINERTYPE, docker or containerd"
+    exit -1
+}
+[[ $# == 0 ]] && help && exit
+while getopts 'i:d:n:t:ch' OPT; do
+    case $OPT in
+        i) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "k8s" ];then
+               onlyinstall=$OPTARG && echo "only install $OPTARG..."
+           else
+               echo "unsupport onlyinstall value $OPTARG..." && exit
+           fi
+        ;;
+        d) if [ "$OPTARG" == "ctl2" ] || [ "$OPTARG" == "ctl3" ];then
+               dist=$OPTARG && echo "dist is set as $OPTARG..."         
+           else
+               echo "unsupport dist type $OPTARG..." && exit
+           fi
+        ;;
+        n) if [ "$OPTARG" == "master" ] || [ "$OPTARG" == "worker" ];then 
+               nodetype=$OPTARG && echo "nodetype is set as $OPTARG..."
+           else
+               echo "unsupport node type $OPTARG..." && exit
+           fi
+        ;;
+        t) if [ "$OPTARG" == "docker" ];then
+               usedocker=1 && echo "usedocker is set as 1..."
+           elif [ "$OPTARG" == "containerd" ];then
+               usedocker=0 && echo "usedocker is set as 0..."
+           else
+               echo "unsupport container engine type $OPTARG..." && exit
+           fi
+        ;;
+        c) echo "clean k8s setup..."
+           kubeadm reset -f
+           rm -rf /etc/cni/*
+           ifconfig cni0 down > /dev/null 2>&1
+           ifconfig flannel.1 down > /dev/null 2>&1
+           ifconfig docker0 down > /dev/null 2>&1
+           ip link delete cni0 > /dev/null 2>&1
+           ip link delete flannel.1 > /dev/null 2>&1
+           echo "k8s reset and network all deleted!" && exit
+        ;;
+        h) help && exit;;
+        ?) help && exit;;
+    esac
+done
+
+echo "开始一键安装模式，该过程需要使用root"
+[ `whoami` == "root" ] || exit
+echo -e "\033[44;37m 安装基础库 \033[0m"
+yum install -y criu libcgroup golang || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
+grep docker.ctyun.cn /etc/hosts
+[[ $? == 0 ]] || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
+echo -e "\033[44;37m 安装 runc/containerd/docker \033[0m"
+yum install -y runc containerd
+if [ $usedocker == 1 ];then
+    yum install -y docker-cli docker
+    if [ ! -f /etc/docker/daemon.json ];then
+        cp /etc/k8s-install/daemon.json /etc/docker/daemon.json
+    fi
+    sleep 15
+    systemctl daemon-reload
+    systemctl restart docker
+    imagecmd="docker pull $imagerepo"
+else
+    imagecmd="ctr i pull --plain-http $imagerepo"
+    sockoption="--cri-socket /run/cri-containerd/cri-containerd.sock"
+    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
+fi
+if [ "x$onlyinstall" == "xdocker" ];then
+    echo "Docker 安装完成. Exit" && exit
+fi
+
+echo -e "\033[44;37m 安装 k8s rpms \033[0m"
+if [ "$nodetype" == "worker" ];then
+    yum install -y kubernetes-kubelet kubernetes-node
+elif [ "$nodetype" == "master" ];then
+    yum install -y kubernetes-client kubernetes-kubeadm kubernetes-master kubernetes-kubelet kubernetes-node
+    #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
+else
+    echo "-n $nodetype is not support!" && exit
+fi
+if [ ! -d /opt/cni ];then
+    echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
+    yum install -y containernetworking-plugins
+    mkdir -p /opt/cni
+    ln -s /usr/libexec/cni /opt/cni/bin
+fi
+if [ "x$onlyinstall" == "xk8s" ];then
+    echo "K8s 安装完成. Exit" && exit
+fi
+
+if [ ! -f /etc/kubernetes/admin.conf ];then
+    echo -e "\033[44;37m 设置k8s \033[0m"
+    iptables -P FORWARD ACCEPT
+    systemctl stop firewalld.service
+    systemctl disable firewalld.service
+    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+    swapoff -a
+    #可根据版本需要编辑修改各镜像版本
+    ${imagecmd}/flannel:v0.14.0
+    ${imagecmd}/kube-proxy:v1.20.2
+    ${imagecmd}/kube-controller-manager:v1.20.2
+    ${imagecmd}/kube-apiserver:v1.20.2
+    ${imagecmd}/kube-scheduler:v1.20.2
+    ${imagecmd}/etcd:3.4.13-0
+    ${imagecmd}/coredns:1.7.0
+    ${imagecmd}/pause:3.2
+    kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
+    #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
+    #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
+    #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
+    #kubeadm init --config kubeadm.yaml
+    mkdir -p $HOME/.kube
+    cp /etc/kubernetes/admin.conf $HOME/.kube/config
+    cp /etc/kubernetes/admin.conf ~/.kube/config
+    chown $(id -u):$(id -g) $HOME/.kube/config
+    sed "s/ARCH/`arch`/g" /etc/k8s-install/flannel.yaml | kubectl apply -f -
+    sleep 5
+    echo -e "\033[44;37m 去除k8s污点 \033[0m"
+    master_name=$(kubectl get node | grep master | awk '{print $1}')
+    master_taint=$(kubectl describe node $master_name | grep Taints | awk '{print $2}') 
+    if [[ $master_taint = "<none>" ]];then
+        echo "不存在污点！"
+    else
+        kubectl taint node $master_name $master_taint-
+        kubectl taint node $master_name node.kubernetes.io/not-ready-
+    fi
+    #rm -rf kubeadm.yaml
+fi
+echo  -e "\033[44;37m 全部部署正常完成 \033[0m"

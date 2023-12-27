@@ -1,0 +1,198 @@
+#!/bin/bash
+set -e
+imagerepo=docker.ctyun.cn:60001/base-`arch`
+podnetwork=10.244.0.0/16
+usedocker=1
+baseinstall=0
+goinstall=0
+runcinstall=0
+containerdinstall=0
+dockerinstall=0
+k8sinstall=0
+ip=$(hostname -I | awk '{print $1}')
+name=$(hostname)
+ARCH=`arch`
+
+help() {
+    echo "Usage:"
+    echo "Install: $0 <-i ONLYINSTALL>"
+    echo "Setup: $0 <-d DIST> <-n NODETYPE> <-t CONTAINERTYPE>"
+    echo "Other options: $0 [-c] [-h]"
+    echo "Description:"
+    echo "without -i will install and setup current node with -d -n and -t"
+    echo "-c reset and clean current node"
+    echo "-h print help message"
+    echo "-i ONLYINSTALL package docker or k8s, without any config"
+    echo "-d DIST, ctl2 or ctl3"
+    echo "-n NODETYPE, master or worker"
+    echo "-t CONTAINERTYPE, docker or containerd"
+    exit -1
+}
+[[ $# == 0 ]] && help && exit
+while getopts 'i:d:n:t:ch' OPT; do
+    case $OPT in
+        i) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "k8s" ];then
+               onlyinstall=$OPTARG && echo "only install $OPTARG..."
+           else
+               echo "unsupport onlyinstall value $OPTARG..." && exit
+           fi
+        ;;
+        d) if [ "$OPTARG" == "ctl2" ] || [ "$OPTARG" == "ctl3" ];then
+               dist=$OPTARG && echo "dist is set as $OPTARG..."         
+           else
+               echo "unsupport dist type $OPTARG..." && exit
+           fi
+        ;;
+        n) if [ "$OPTARG" == "master" ] || [ "$OPTARG" == "worker" ];then 
+               nodetype=$OPTARG && echo "nodetype is set as $OPTARG..."
+           else
+               echo "unsupport node type $OPTARG..." && exit
+           fi
+        ;;
+        t) if [ "$OPTARG" == "docker" ];then
+               usedocker=1 && echo "usedocker is set as 1..."
+           elif [ "$OPTARG" == "containerd" ];then
+               usedocker=0 && echo "usedocker is set as 0..."
+           else
+               echo "unsupport container engine type $OPTARG..." && exit
+           fi
+        ;;
+        c) echo "clean k8s setup..."
+           kubeadm reset -f
+           rm -rf /etc/cni/*
+           ifconfig cni0 down > /dev/null 2>&1
+           ifconfig flannel.1 down > /dev/null 2>&1
+           ifconfig docker0 down > /dev/null 2>&1
+           ip link delete cni0 > /dev/null 2>&1
+           ip link delete flannel.1 > /dev/null 2>&1
+           echo "k8s reset and network all deleted!" && exit
+        ;;
+        h) help && exit;;
+        ?) help && exit;;
+    esac
+done
+
+echo "开始一键安装模式，该过程需要使用root"
+[ `whoami` == "root" ] || exit
+rpm -q criu || baseinstall=1
+if [ $baseinstall -eq 0 ]; then
+     echo "检查到基础库已安装!"
+else
+     echo -e "\033[44;37m 安装基础库 \033[0m"
+     cd rpms
+     rpm -ivh --force --nodeps protobuf-*.rpm zlib-devel-*.rpm vim-filesystem-*.rpm vim-common-*.rpm libnetfilter_queue-*.rpm libnetfilter_cttimeout-*.rpm libnetfilter_cthelper-*.rpm gpm-libs-*.rpm vim-enhanced-*.rpm emacs-filesystem-*.rpm protobuf-devel-*.rpm protobuf-c-*.rpm conntrack-tools-help-*.rpm conntrack-tools-*.rpm criu-*.rpm socat-*.rpm libcgroup-*.rpm
+     cd -
+fi
+go version || goinstall=1
+if [ $goinstall -eq  0 ]; then
+     echo "检查到golang已安装!"
+else
+     echo -e "\033[44;37m 安装 golang \033[0m"
+     rpm -ivh rpms/golang-*${dist}*.rpm
+fi
+echo -e "\033[44;37m 安装 runc/containerd/docker, 如果有老版本请先自行御载！！！ \033[0m"
+runc -v || runcinstall=1
+if [ $runcinstall -eq  0 ]; then
+     echo "检查到runc已安装!"
+else
+     echo "安装runc..."
+     rpm -ivh rpms/runc-*${dist}.${ARCH}.rpm
+fi
+containerd -v || containerdinstall=1
+if [ $containerdinstall -eq  0 ]; then
+     echo "检查到contained已安装!"
+else
+     echo "安装contained..."
+     rpm -ivh rpms/containerd-*${dist}.${ARCH}.rpm
+     systemctl enable containerd.service
+     systemctl restart containerd.service
+fi
+if [ $usedocker == 1 ];then
+    which docker || dockerinstall=1
+    if [ $dockerinstall -eq  0 ]; then
+        echo "检查到Docker已安装!"
+    else
+        echo "安装docker..."
+        rm -rf /etc/docker/daemon.json #This file should be delete, or start service will fail. Offline mode does NOT need this file
+        rpm -ivh rpms/docker-*${dist}.${ARCH}.rpm
+        sleep 5
+        systemctl enable docker
+        systemctl daemon-reload
+        systemctl start docker
+    fi
+else
+    sockoption="--cri-socket /run/cri-containerd/cri-containerd.sock"
+    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
+fi
+if [ "x$onlyinstall" == "xdocker" ];then
+    echo "Docker 安装完成. Exit" && exit
+fi
+
+echo -e "\033[44;37m 安装 k8s \033[0m"
+rpm -qa | grep kubelet && k8sinstall=1
+if [ $k8sinstall -eq 1 ]; then
+    echo "检查到k8s已安装!"
+else
+    echo "安装k8s rpms..."
+    cd rpms
+    if [ "$nodetype" == "worker" ];then
+        rpm -ivh kubernetes-kubelet-*${dist}.${ARCH}.rpm kubernetes-node-*${dist}.${ARCH}.rpm
+    elif [ "$nodetype" == "master" ];then
+        rpm -ivh kubernetes-*${dist}.${ARCH}.rpm
+    else
+        echo "-n $nodetype is not support!" && exit
+    fi
+    cd -
+    systemctl enable kubelet
+fi
+if [ "x$onlyinstall" == "xk8s" ];then
+    echo "K8s 安装完成. Exit" && exit
+fi
+
+if [ ! -d /opt/cni ];then
+    echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
+    rpm -ivh rpms/containernetworking-plugins-*${dist}.${ARCH}.rpm
+    mkdir -p /opt/cni
+    ln -s /usr/libexec/cni /opt/cni/bin
+fi
+if [ ! -f /etc/kubernetes/admin.conf ];then
+    echo -e "\033[44;37m 设置k8s \033[0m"
+    iptables -P FORWARD ACCEPT
+    systemctl stop firewalld.service
+    systemctl disable firewalld.service
+    sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+    swapoff -a
+    echo -e "\033[44;37m 加载k8s镜像 \033[0m"
+    cd tar-${ARCH}/
+    for i in `ls`;do
+        if [ $usedocker == 1 ];then
+            docker load -i $i
+        else
+            ctr image import $i
+        fi
+    done
+    cd -
+    kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
+    #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
+    #cp config/kubeadm-template.yaml kubeadm.yaml
+    #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
+    #kubeadm init --config kubeadm.yaml
+    mkdir -p $HOME/.kube
+    cp /etc/kubernetes/admin.conf $HOME/.kube/config
+    cp /etc/kubernetes/admin.conf ~/.kube/config
+    chown $(id -u):$(id -g) $HOME/.kube/config
+    sed "s/ARCH/`arch`/g" config/flannel.yaml | kubectl apply -f - 
+    #mkdir -p /run/flannel;cp config/subnet.env /run/flannel/;cp config/10-flannel.conflist /etc/cni/net.d/ #In case files missing
+    sleep 5
+    echo -e "\033[44;37m 去除k8s污点 \033[0m"
+    master_name=$(kubectl get node | grep master | awk '{print $1}')
+    master_taint=$(kubectl describe node $master_name | grep Taints | awk '{print $2}') 
+    if [[ $master_taint = "<none>" ]];then
+        echo "不存在污点！"
+    else
+        kubectl taint node $master_name $master_taint-
+        kubectl taint node $master_name node.kubernetes.io/not-ready-
+    fi
+    #rm -rf kubeadm.yaml
+fi
+echo  -e "\033[44;37m 全部部署正常完成 \033[0m"
