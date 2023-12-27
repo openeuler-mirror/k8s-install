@@ -2,10 +2,14 @@
 
 ## Typical command (cmd = k8s-install or k8s-install-offline)
 - sudo $cmd -i docker          Only Install runc/containerd/docker/docker-cli rpms
-- sudo $cmd -i k8s -n master   Only Install runc/containerd/docker/docker-cli/k8s rpms, and load k8s images
+- sudo $cmd -i k8s -n master   Only Install runc/containerd/docker/docker-cli/k8s rpms, must specify node type
 - sudo $cmd -d ctl2 -n master -t docker      Install and setup k8s with given options
 - sudo $cmd -c                 Destroy k8s config
 - sudo $cmd -h                 Print help message
+
+## Typical Ansible work flow
+* sudo $cmd -d ctl2 -n master -t docker   On master node, and recode 'kubeadm join' output line
+* sudo $cmd -d ctl2 -n worker -t docker   On each woker node, and execute 'kubeadm join' output line
 
 ## Notes
 - Use k8s-install when you can reach yum and ctyun harbor by network, this is published by k8s-install rpm in yum
