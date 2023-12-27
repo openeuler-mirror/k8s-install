@@ -68,9 +68,8 @@ done
 echo "开始一键安装模式，该过程需要使用root"
 [ `whoami` == "root" ] || exit
 echo -e "\033[44;37m 安装基础库 \033[0m"
-yum install -y criu libcgroup golang || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
-grep docker.ctyun.cn /etc/hosts
-[[ $? == 0 ]] || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
+yum install -y criu libcgroup || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
+grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
 echo -e "\033[44;37m 安装 runc/containerd/docker \033[0m"
 yum install -y runc containerd
 if [ $usedocker == 1 ];then
@@ -117,6 +116,8 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     systemctl disable firewalld.service
     sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
     swapoff -a
+    grep ^nameserver /etc/resolv.conf 
+    [[ $? == 0 ]] || (chmod a+w /etc/resolv.conf && echo "nameserver 114.114.114.114" >> /etc/resolv.conf)
     #可根据版本需要编辑修改各镜像版本
     ${imagecmd}/flannel:v0.14.0
     ${imagecmd}/kube-proxy:v1.20.2
@@ -128,7 +129,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     ${imagecmd}/pause:3.2
     if [ "$nodetype" == "master" ];then
         kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
-		#默认使用参数配置(因为可做到无人工修改)，也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
+        #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
         #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
         #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
         #kubeadm init --config kubeadm.yaml
