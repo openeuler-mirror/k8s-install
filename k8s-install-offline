@@ -83,13 +83,13 @@ else
      rpm -ivh --force --nodeps protobuf-*.rpm zlib-devel-*.rpm vim-filesystem-*.rpm vim-common-*.rpm libnetfilter_queue-*.rpm libnetfilter_cttimeout-*.rpm libnetfilter_cthelper-*.rpm gpm-libs-*.rpm vim-enhanced-*.rpm emacs-filesystem-*.rpm protobuf-devel-*.rpm protobuf-c-*.rpm conntrack-tools-help-*.rpm conntrack-tools-*.rpm criu-*.rpm socat-*.rpm libcgroup-*.rpm
      cd -
 fi
-go version || goinstall=1
-if [ $goinstall -eq  0 ]; then
-     echo "检查到golang已安装!"
-else
-     echo -e "\033[44;37m 安装 golang \033[0m"
-     rpm -ivh rpms/golang-*${dist}*.rpm
-fi
+# go version || goinstall=1
+# if [ $goinstall -eq  0 ]; then
+#      echo "检查到golang已安装!"
+# else
+#      echo -e "\033[44;37m 安装 golang \033[0m"
+#      rpm -ivh rpms/golang-*${dist}*.rpm
+# fi
 echo -e "\033[44;37m 安装 runc/containerd/docker, 如果有老版本请先自行御载！！！ \033[0m"
 runc -v || runcinstall=1
 if [ $runcinstall -eq  0 ]; then
