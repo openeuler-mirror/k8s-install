@@ -1,0 +1,3 @@
+rpms/*.rpm
+tar-aarch64/*.tar
+tar-x86_64/*.tar
