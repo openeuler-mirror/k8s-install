@@ -8,7 +8,8 @@ mkdir -p /tmp/k8s-install-offline/rpms
 cp -r config k8s-install-offline README.md /tmp/k8s-install-offline
 chmod 400 rsync.password
 for a in ${arch[@]};do
-    cp -r tar-$a /tmp/k8s-install-offline/
+    mkdir -p /tmp/k8s-install-offline/tar-$a
+    cp  tar-$a/*.tar /tmp/k8s-install-offline/tar-$a/
     for d in ${dist[@]};do
         rm -f /tmp/k8s-install-offline/rpms/*
         cp rpms/*.$d.$a.rpm rpms/*.$d.noarch.rpm /tmp/k8s-install-offline/rpms/ >/dev/null 2>&1

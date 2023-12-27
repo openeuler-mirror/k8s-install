@@ -1,5 +1,6 @@
 #!/bin/bash
-docker save docker.ctyun.cn:60001/base-aarch64/flannel:v0.14.0  -o flannel.tar
+docker save docker.ctyun.cn:60001/base-aarch64/flannel:v0.21.0  -o flannel.tar
+docker save docker.ctyun.cn:60001/base-aarch64/flannel-cni-plugin:v1.1.2 -o flannel-cni-plugin.tar
 docker save docker.ctyun.cn:60001/base-aarch64/kube-proxy:v1.20.2  -o kube-proxy.tar
 docker save docker.ctyun.cn:60001/base-aarch64/kube-apiserver:v1.20.2  -o kube-apiserver.tar
 docker save docker.ctyun.cn:60001/base-aarch64/kube-controller-manager:v1.20.2  -o kube-controller-manager.tar
