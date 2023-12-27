@@ -78,6 +78,7 @@ if [ $usedocker == 1 ];then
         cp /etc/k8s-install/daemon.json /etc/docker/daemon.json
     fi
     sleep 15
+    systemctl enable docker
     systemctl daemon-reload
     systemctl restart docker
     imagecmd="docker pull $imagerepo"
@@ -99,6 +100,8 @@ elif [ "$nodetype" == "master" ];then
 else
     echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
 fi
+systemctl enable kubelet
+
 if [ ! -d /opt/cni ];then
     echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
     yum install -y containernetworking-plugins
