@@ -2,7 +2,7 @@
 
 ## Typical command (cmd = k8s-install or k8s-install-offline)
 - sudo $cmd -i docker          Only Install runc/containerd/docker/docker-cli rpms
-- sudo $cmd -i k8s             Only Install runc/containerd/docker/docker-cli/k8s rpms, and load k8s images
+- sudo $cmd -i k8s -n master   Only Install runc/containerd/docker/docker-cli/k8s rpms, and load k8s images
 - sudo $cmd -d ctl2 -n master -t docker      Install and setup k8s with given options
 - sudo $cmd -c                 Destroy k8s config
 - sudo $cmd -h                 Print help message
