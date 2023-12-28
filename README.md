@@ -61,14 +61,14 @@ scheduler: {}
 ```
 
 ## Publishing
-- Edit /etc/yum.repos.d/ctyunos.repo, put all available dist repos(ctl2&ctl3 repos in testing section) in.
-- $sudo yum update, only refresh repo, without install.
+- Edit /etc/yum.repos.d/ctyunos.repo, put all available dist repos in.
+- $sudo yum makecache, only refresh repo, without install.
 - Run ./init.sh in rpms tar-x86_64 and tar-aarch64 dirs to download offline stuff
 - Make sure git committed all changes
 - Run ./publish.sh. It will sync all offline tgz to THE REPO, and change commit tgz change into obsbuild branch
 
 ## 离线包测试
-- 下载地址：http://124.236.120.248:50001/ctyun/ctyunos/ctyunos_testing/
+- 下载地址：https://cloud.189.cn/t/aiUVrevEZFFn （访问码：y2ul）
 - 测试物：四个tgz包
 - 测试流程：下载解压，执行k8s-install-offline命令，无需yum及harbor
 - 测试项：看help，参考README.md，各种可能的环境情况（全裸、重装、半装），各种可能参数交叉测试
@@ -80,30 +80,34 @@ ctl2如下
 ```
 [ctl2]
 name=ctl2
-baseurl=http://124.236.120.248:50001/ctyun/ctyunos/ctyunos-2/22.06/everything/$basearch/
+baseurl=https://ctyunos.ctyun.cn/hostos/ctyunos-22.06/everything/$basearch/
 enabled=1
 gpgcheck=0
+priority=10
 
-[ctl2-testing]
-name=ctl2-testing
-baseurl=http://124.236.120.248:50001/ctyun/ctyunos/ctyunos-testing-2/22.06/testing/$basearch/
+[ctl2-update]
+name=ctl2-update
+baseurl=https://ctyunos.ctyun.cn/hostos/ctyunos-22.06/update/$basearch/
 enabled=1
 gpgcheck=0
+priority=1
 ```
 ctl3如下
 ```
 [ctl3]
 name=ctl3
-baseurl=http://124.236.120.248:50001/ctyun/ctyunos/ctyunos-3/23.01-testing/everything/$basearch/
+baseurl=https://ctyunos.ctyun.cn/hostos/ctyunos-23.01/everything/$basearch/
 enabled=1
 gpgcheck=0
+priority=20
 
-[ctl3-testing]
-name=ctl3-testing
-baseurl=http://124.236.120.248:50001/ctyun/ctyunos/ctyunos-3/23.01-testing/update/$basearch/
+[ctl3-update]
+name=ctl3-update
+baseurl=https://ctyunos.ctyun.cn/hostos/ctyunos-23.01/update/$basearch/
 enabled=1
 gpgcheck=0
+priority=20
 ```
-- $sudo yum update && sudo yum install k8s-install  然后执行k8s-install命令，命令模式与离线类似。如sudo k8s-install -d ctl2 -n master -t docker
+- $sudo yum makecache && sudo yum install k8s-install  然后执行k8s-install命令，命令模式与离线类似。如sudo k8s-install -d ctl2 -n master -t docker
 - 测试项：看help，参考README.md，各种可能的环境情况（全裸、重装、半装），各种可能参数交叉测试
 - 预期结果：可只安装、可安装加配置、可清理、可指定发行版、结点类型、容器类型。保证包全部能从yum安装，无缺失，可从harbor拉取镜像，所有pod在部署完成后正常运行（kubectl get pods -A）。
