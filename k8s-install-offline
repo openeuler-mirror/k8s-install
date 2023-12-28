@@ -38,12 +38,16 @@ while getopts 'i:d:n:t:ch' OPT; do
            fi
         ;;
         d) if [ "$OPTARG" == "ctl2" ] || [ "$OPTARG" == "ctl3" ];then
-               dist=$OPTARG && echo "dist is set as $OPTARG..."         
+               if [[ "$OPTARG" == "ctl2" && `rpm --eval %{dist}` == ".ctl3" ]] || [[ "$OPTARG" == "ctl3" && `rpm --eval %{dist}` == ".ctl2" ]];then
+                   echo "$OPTARG is not suitable for current distrubution" && exit
+               else
+                   dist=$OPTARG && echo "dist is set as $OPTARG..."
+               fi
            else
                echo "unsupport dist type $OPTARG..." && exit
            fi
         ;;
-        n) if [ "$OPTARG" == "master" ] || [ "$OPTARG" == "worker" ];then 
+        n) if [ "$OPTARG" == "master" ] || [ "$OPTARG" == "worker" ];then
                nodetype=$OPTARG && echo "nodetype is set as $OPTARG..."
            else
                echo "unsupport node type $OPTARG..." && exit
