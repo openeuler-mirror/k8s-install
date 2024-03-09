@@ -1,25 +1,29 @@
 #! /bin/bash
+build_version=$1
+source ../variable.sh 
+version_function="set_version_${build_version}"
+if declare -f "$version_function" > /dev/null; then
+    $version_function
+else
+    echo "Version function $version_function not found. Exiting."
+    exit 1
+fi
 
 rm -f *.tar
 
 # pull docker images.
-docker pull docker.ctyun.cn:60001/base-x86_64/flannel:v0.21.0
-docker pull docker.ctyun.cn:60001/base-x86_64/flannel-cni-plugin:v1.1.2
-docker pull docker.ctyun.cn:60001/base-x86_64/kube-proxy:v1.20.2
-docker pull docker.ctyun.cn:60001/base-x86_64/kube-apiserver:v1.20.2
-docker pull docker.ctyun.cn:60001/base-x86_64/kube-controller-manager:v1.20.2
-docker pull docker.ctyun.cn:60001/base-x86_64/kube-scheduler:v1.20.2
-docker pull docker.ctyun.cn:60001/base-x86_64/etcd:3.4.13-0
-docker pull docker.ctyun.cn:60001/base-x86_64/coredns:1.7.0
-docker pull docker.ctyun.cn:60001/base-x86_64/pause:3.2
+for image_name in "${!images[@]}"; do
+    # 获取镜像版本
+    image_version="${images[$image_name]}"
+    version="${!image_version}"
+    full_image_name="${IMAGE_REPO}/base-x86_64/${image_name}:${version}"
+    # 执行docker pull & docker save 命令
+    echo "Pulling image"
+    docker pull "$full_image_name"
 
-# save docker images to tar.
-docker save docker.ctyun.cn:60001/base-x86_64/flannel:v0.21.0  -o flannel.tar
-docker save docker.ctyun.cn:60001/base-x86_64/flannel-cni-plugin:v1.1.2 -o flannel-cni-plugin.tar
-docker save docker.ctyun.cn:60001/base-x86_64/kube-proxy:v1.20.2  -o kube-proxy.tar
-docker save docker.ctyun.cn:60001/base-x86_64/kube-apiserver:v1.20.2  -o kube-apiserver.tar
-docker save docker.ctyun.cn:60001/base-x86_64/kube-controller-manager:v1.20.2  -o kube-controller-manager.tar
-docker save docker.ctyun.cn:60001/base-x86_64/kube-scheduler:v1.20.2  -o kube-scheduler.tar
-docker save docker.ctyun.cn:60001/base-x86_64/etcd:3.4.13-0  -o etcd.tar
-docker save docker.ctyun.cn:60001/base-x86_64/coredns:1.7.0  -o coredns.tar
-docker save docker.ctyun.cn:60001/base-x86_64/pause:3.2  -o pause.tar
+    echo "save docker images to tar"
+    docker save "$full_image_name" -o ${image_name}.tar
+done
+
+echo "All images have been pulled and saved."
+
