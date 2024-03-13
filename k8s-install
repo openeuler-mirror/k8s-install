@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
-imagerepo=docker.ctyun.cn:60001/base-`arch`
+source variable.sh
+imagerepo=$IMAGE_REPO/base-`arch`
+#imagerepo=docker.ctyun.cn:60001/base-`arch`
 podnetwork=10.244.0.0/16
 usedocker=1
 ip=$(hostname -I | awk '{print $1}')
@@ -21,6 +23,21 @@ help() {
     echo "-t CONTAINERTYPE, docker or containerd"
     exit -1
 }
+
+install_package() {
+    local package=$1
+    local version_key=$(echo "${package^^}" | tr '-' '_')_VERSION
+    local version=${!version_key}
+
+    if [[ -z "$version" ]]; then
+        echo "版本未定义或为空: $version_key"
+        return 1
+    fi
+
+    echo "执行: yum install -y ${package}-${version}"
+    yum install -y "${package}-${version}"
+}
+
 [[ $# == 0 ]] && help && exit
 while getopts 'i:d:n:t:ch' OPT; do
     case $OPT in
@@ -54,6 +71,28 @@ while getopts 'i:d:n:t:ch' OPT; do
                echo "unsupport container engine type $OPTARG..." && exit
            fi
         ;;
+        u) for package in $online_install_pkg; do 
+            if rpm -q "$package" > /dev/null 2>&1; then 
+                yum update -y "$package" --obsoletes
+            else 
+                echo "Package $package is not installed, skipping update."
+            fi
+           done
+           exit 0
+           ;;
+        b)
+           pkg_version=$OPTARG
+            if [ "$pkg_version" = "120" ]; then 
+                set_version_120
+            elif [ "$pkg_version" = "125" ]; then
+                set_version_125
+            elif [ "$pkg_version" = "129" ]; then
+                set_version_129
+            else 
+                echo "Invalid version specified!"
+                exit 1 
+            fi
+           ;;
         c) echo "clean k8s setup..."
            kubeadm reset -f
            rm -rf /etc/cni/*
@@ -72,12 +111,18 @@ done
 echo "开始一键安装模式，该过程需要使用root"
 [ `whoami` == "root" ] || exit
 echo -e "\033[44;37m 安装基础库 \033[0m"
-yum install -y criu libcgroup || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
+yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
+install_package criu
+install libcgroup
+
 grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
 echo -e "\033[44;37m 安装 runc/containerd/docker \033[0m"
-yum install -y runc containerd
+install_package runc
+install_package containerd
 if [ $usedocker == 1 ];then
-    yum install -y docker-cli docker
+    install_package docker-cli
+    install_package docker
+
     if [ ! -f /etc/docker/daemon.json ];then
         cp /etc/k8s-install/daemon.json /etc/docker/daemon.json
     fi
@@ -97,9 +142,15 @@ fi
 
 echo -e "\033[44;37m 安装 k8s rpms \033[0m"
 if [ "$nodetype" == "worker" ];then
-    yum install -y kubernetes-kubelet kubernetes-client kubernetes-node
+    install_package kubernetes-kubelet
+    install_package kubernetes-client
+    install_package kubernetes-node
 elif [ "$nodetype" == "master" ];then
-    yum install -y kubernetes-client kubernetes-kubeadm kubernetes-master kubernetes-kubelet kubernetes-node
+    install_package kubernetes-client
+    install_package kubernetes-kubeadm
+    install_package kubernetes-master
+    install_package kubernetes-kubelet
+    install_package kubernetes-node
     #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
 else
     echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
@@ -108,7 +159,7 @@ systemctl enable kubelet
 
 if [ ! -d /opt/cni ];then
     echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
-    yum install -y containernetworking-plugins
+    install_package containernetworking-plugins
     mkdir -p /opt/cni
     ln -s /usr/libexec/cni /opt/cni/bin
 fi
@@ -125,15 +176,12 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     swapoff -a
     grep ^nameserver /etc/resolv.conf || (chmod a+w /etc/resolv.conf && echo "nameserver 114.114.114.114" >> /etc/resolv.conf)
     #可根据版本需要编辑修改各镜像版本
-    ${imagecmd}/flannel:v0.21.0
-    ${imagecmd}/flannel-cni-plugin:v1.1.2
-    ${imagecmd}/kube-proxy:v1.20.2
-    ${imagecmd}/kube-controller-manager:v1.20.2
-    ${imagecmd}/kube-apiserver:v1.20.2
-    ${imagecmd}/kube-scheduler:v1.20.2
-    ${imagecmd}/etcd:3.4.13-0
-    ${imagecmd}/coredns:1.7.0
-    ${imagecmd}/pause:3.2
+    for image_name in "${!images[@]}"; do
+        version_var="${images[$image_name]}"
+        version="${!version_var}"
+        ${imagecmd}/${image_name}:${version}
+    done
+    
     if [ "$nodetype" == "master" ];then
         kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
         #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。

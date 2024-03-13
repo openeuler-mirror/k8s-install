@@ -1,17 +1,28 @@
 #! /bin/bash
+while getopts "b:" opt; do
+  case $opt in
+    b) build_version=$OPTARG ;;
+    \?) echo "Invalid option: -$OPTARG" >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$build_version" ]; then
+    echo "Build version (-b) not specified. Exiting."
+    exit 1
+fi
 
 echo "============ Pull rpm packages ============"
 cd rpms/
-./init.sh
+./init.sh 
 cd -
 
 echo "============ Pull x86_64 docker images, and save to tar ============"
 cd tar-x86_64/
-./init.sh
+./init.sh 
 cd -
 
 echo "============ Pull aarch64 docker images, and save to tar ============"
-cd tar-aarch64/
+cd tar-aarch64/ 
 ./init.sh
 cd -
 
