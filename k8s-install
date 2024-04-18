@@ -145,6 +145,7 @@ if [ "$nodetype" == "worker" ];then
     install_package kubernetes-kubelet
     install_package kubernetes-client
     install_package kubernetes-node
+    install_package kubernetes-kubeadm
 elif [ "$nodetype" == "master" ];then
     install_package kubernetes-client
     install_package kubernetes-kubeadm
