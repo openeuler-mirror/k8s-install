@@ -140,7 +140,7 @@ else
     echo "安装k8s rpms..."
     cd rpms
     if [ "$nodetype" == "worker" ];then
-        rpm -ivh kubernetes-kubelet-*${dist}.${ARCH}.rpm kubernetes-client-*${dist}.${ARCH}.rpm kubernetes-node-*${dist}.${ARCH}.rpm
+        rpm -ivh kubernetes-kubelet-*${dist}.${ARCH}.rpm kubernetes-client-*${dist}.${ARCH}.rpm kubernetes-node-*${dist}.${ARCH}.rpm kubernetes-kubeadm-*${dist}.${ARCH}.rpm
     elif [ "$nodetype" == "master" ];then
         rpm -ivh kubernetes-*${dist}.${ARCH}.rpm
     else
