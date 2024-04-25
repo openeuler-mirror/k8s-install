@@ -13,7 +13,7 @@ set_version_120(){
     # pkg version
     export CRIU_VERSION="3.16.1"
     export LIBCGROUP_VERSION="0.42.2"
-    export RUNC_VERSION="1.1.4"
+    export RUNC_VERSION="1.1.12"
     export CONTAINERD_VERSION="1.5.6"
     export DOCKER_CLI_VERSION="20.10.12"
     export DOCKER_VERSION="20.10.12"
