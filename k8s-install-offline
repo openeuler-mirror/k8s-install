@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+source variable.sh
 imagerepo=docker.ctyun.cn:60001/base-`arch`
 podnetwork=10.244.0.0/16
 usedocker=1
@@ -29,7 +30,7 @@ help() {
     exit -1
 }
 [[ $# == 0 ]] && help && exit
-while getopts 'i:d:n:t:ch' OPT; do
+while getopts 'i:d:n:t:uch' OPT; do
     case $OPT in
         i) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "k8s" ];then
                onlyinstall=$OPTARG && echo "only install $OPTARG..."
@@ -60,6 +61,15 @@ while getopts 'i:d:n:t:ch' OPT; do
            else
                echo "unsupport container engine type $OPTARG..." && exit
            fi
+        ;;
+	u) for package in $online_install_pkg; do
+           if rpm -q "$package" > /dev/null 2>&1; then
+               rpm -Uvh rpms/$package-*.rpm
+           else
+               echo "Package $package is not installed, skipping update."
+           fi
+           done
+           exit 0
         ;;
         c) echo "clean k8s setup..."
            kubeadm reset -f
@@ -115,15 +125,18 @@ if [ $usedocker == 1 ];then
     which docker || dockerinstall=1
     if [ $dockerinstall -eq  0 ]; then
         echo "检查到Docker已安装!"
+	[ $(rpm -q $(rpm -qf $(which docker)) --qf %{version} | awk -F '.' '{print $1}') -le 18 ] && \
+        (rpm -e runc --nodeps; rpm -ivh rpms/runc-1.1.3-*${dist}.${ARCH}.rpm;)
     else
         echo "安装docker..."
         rm -rf /etc/docker/daemon.json #This file should be delete, or start service will fail. Offline mode does NOT need this file
         rpm -ivh rpms/docker-*${dist}.${ARCH}.rpm
+    fi
+
         sleep 5
         systemctl enable docker
         systemctl daemon-reload
-        systemctl start docker
-    fi
+        systemctl restart docker
 else
     sockoption="--cri-socket /run/cri-containerd/cri-containerd.sock"
     sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
