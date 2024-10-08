@@ -1,0 +1,13 @@
+[everything-ctl2]
+name=everything-ctl2
+baseurl=https://repo.ctyun.cn/hostos/ctyunos-22.06/everything/$basearch/
+enabled=1
+gpgcheck=0
+
+
+[update-ctl2]
+name=update-ctl2
+baseurl=https://repo.ctyun.cn/hostos/ctyunos-22.06/update/$basearch/
+enabled=1
+gpgcheck=0
+

@@ -9,11 +9,12 @@ bootstrapTokens:
   - authentication
 kind: InitConfiguration
 localAPIEndpoint:
-  advertiseAddress: ip
+  advertiseAddress: 172.21.51.143  # apiserver地址，因为单master，所以配置master的节点内网IP
   bindPort: 6443
 nodeRegistration:
-  criSocket: /var/run/dockershim.sock
-  name: master
+  criSocket: unix:///var/run/containerd/containerd.sock
+  imagePullPolicy: IfNotPresent
+  name: k8s-master                 # 按实际情况修改
   taints:
   - effect: NoSchedule
     key: node-role.kubernetes.io/master
@@ -29,10 +30,11 @@ dns:
 etcd:
   local:
     dataDir: /var/lib/etcd
-imageRepository: docker.ctyun.cn:60001/base-ARCH
+imageRepository: gcs.k8s.io  # 修改成harbor仓库地址
 kind: ClusterConfiguration
-kubernetesVersion: v1.20.2
+kubernetesVersion: v1.20.2	 # 修改成要部署的k8s版本
 networking:
   dnsDomain: cluster.local
-  serviceSubnet: 10.96.0.0/12
+  podSubnet: 192.168.0.0/16  # Pod 网段，flannel插件需要使用这个网段
+  serviceSubnet: 10.0.0.0/12
 scheduler: {}

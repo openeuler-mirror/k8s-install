@@ -1,15 +1,17 @@
 #!/bin/bash
 set -e
 source variable.sh
-imagerepo=docker.ctyun.cn:60001/base-`arch`
+imagerepo=registry.aliyuncs.com/google_containers
 podnetwork=10.244.0.0/16
 usedocker=1
+baseline=129 #defualt
 baseinstall=0
 goinstall=0
 runcinstall=0
 containerdinstall=0
 dockerinstall=0
 k8sinstall=0
+install_on_docker=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
 ARCH=`arch`
@@ -24,30 +26,48 @@ help() {
     echo "-c reset and clean current node"
     echo "-h print help message"
     echo "-i ONLYINSTALL package docker or k8s, without any config"
-    echo "-d DIST, ctl2 or ctl3"
+    echo "-b BASELINE,120, 125, 129(default)"
+    echo "-d DIST, ctl2, ctl3, ctl4, oe2309, oe2403"
     echo "-n NODETYPE, master or worker"
     echo "-t CONTAINERTYPE, docker or containerd"
     exit -1
 }
 [[ $# == 0 ]] && help && exit
-while getopts 'i:d:n:t:uch' OPT; do
+check_distribution() {
+    local arg="$1"
+    local current_dist="$(rpm --eval %{dist})"
+    if [[ "$arg" == oe* ]]; then
+        current_dist=".${arg}"
+    fi
+    if [ ".${arg}" != "$current_dist" ]; then
+        echo "$arg is not suitable for current distribution" && exit 1
+    else
+        dist=$arg
+        echo "dist is set as $arg..."
+    fi
+}
+
+while getopts 'i:d:n:t::b:uch' OPT; do
     case $OPT in
-        i) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "k8s" ];then
-               onlyinstall=$OPTARG && echo "only install $OPTARG..."
-           else
-               echo "unsupport onlyinstall value $OPTARG..." && exit
-           fi
-        ;;
-        d) if [ "$OPTARG" == "ctl2" ] || [ "$OPTARG" == "ctl3" ];then
-               if [[ "$OPTARG" == "ctl2" && `rpm --eval %{dist}` == ".ctl3" ]] || [[ "$OPTARG" == "ctl3" && `rpm --eval %{dist}` == ".ctl2" ]];then
-                   echo "$OPTARG is not suitable for current distrubution" && exit
-               else
-                   dist=$OPTARG && echo "dist is set as $OPTARG..."
-               fi
-           else
-               echo "unsupport dist type $OPTARG..." && exit
-           fi
-        ;;
+        i)  case "$OPTARG" in
+                "docker"|"k8s")
+                    onlyinstall=$OPTARG
+                    echo "only install $OPTARG..."
+                    ;;
+                *)
+                    echo "unsupported onlyinstall value $OPTARG..." && exit 1
+                    ;;
+            esac
+            ;;
+        d)  case "$OPTARG" in
+                "ctl2"|"ctl3"|"ctl4"|"oe2403"|"oe2309")
+                    check_distribution "$OPTARG"
+                    ;;
+                *)
+                    echo "unsupported dist type $OPTARG..." && exit 1
+                    ;;
+            esac
+            ;;
         n) if [ "$OPTARG" == "master" ] || [ "$OPTARG" == "worker" ];then
                nodetype=$OPTARG && echo "nodetype is set as $OPTARG..."
            else
@@ -62,6 +82,22 @@ while getopts 'i:d:n:t:uch' OPT; do
                echo "unsupport container engine type $OPTARG..." && exit
            fi
         ;;
+        b)  case "$OPTARG" in
+                "120"|"125"|"129")
+                baseline=$OPTARG && echo "baseline is set as $OPTARG.."
+		        set_version_${OPTARG}
+		        k8s_version=${KUBERNETES_VERSION}
+                pause_version=${PAUSE_VERSION}
+                if [ $baseline == "120" ]; then
+                    imagerepo=docker.ctyun.cn:60001/base-`arch`
+                    install_on_docker=1
+                fi
+                ;;
+            *)
+                echo "unsupport k8s baseline $OPTARG.."&& exit 1
+                ;;
+            esac
+            ;;
 	u) for package in $online_install_pkg; do
            if rpm -q "$package" > /dev/null 2>&1; then
                rpm -Uvh rpms/$package-*.rpm
@@ -86,15 +122,26 @@ while getopts 'i:d:n:t:uch' OPT; do
     esac
 done
 
+if [[ $baseline != "120" && $usedocker == 1 ]]; then
+    if [ $onlyinstall == "k8s" ]; then
+        echo "${baseline}基线暂不支持使用docker部署k8s,仅安装docker请使用 -i docker"
+        exit
+    fi
+fi
+
 echo "开始一键安装模式，该过程需要使用root"
 [ `whoami` == "root" ] || exit
-rpm -q criu || baseinstall=1
-if [ $baseinstall -eq 0 ]; then
+rpm -q cri-tools || baseinstall=1
+if [ $baseinstall -eq 0 ]; then # test:1
      echo "检查到基础库已安装!"
 else
      echo -e "\033[44;37m 安装基础库 \033[0m"
      cd rpms
-     rpm -ivh --force --nodeps protobuf-*.rpm zlib-devel-*.rpm vim-filesystem-*.rpm vim-common-*.rpm libnetfilter_queue-*.rpm libnetfilter_cttimeout-*.rpm libnetfilter_cthelper-*.rpm gpm-libs-*.rpm vim-enhanced-*.rpm emacs-filesystem-*.rpm protobuf-devel-*.rpm protobuf-c-*.rpm conntrack-tools-help-*.rpm conntrack-tools-*.rpm criu-*.rpm socat-*.rpm libcgroup-*.rpm
+     if [ "$baseline" == "120" ]; then
+         rpm -ivh --force --nodeps protobuf-*.rpm zlib-devel-*.rpm vim-filesystem-*.rpm vim-common-*.rpm libnetfilter_queue-*.rpm libnetfilter_cttimeout-*.rpm libnetfilter_cthelper-*.rpm gpm-libs-*.rpm vim-enhanced-*.rpm emacs-filesystem-*.rpm protobuf-devel-*.rpm protobuf-c-*.rpm conntrack-tools-help-*.rpm conntrack-tools-*.rpm socat-*.rpm libcgroup-*.rpm cri-tools-*.rpm
+     else
+         rpm -ivh --force --nodeps conntrack-tools-*.rpm socat-*.rpm libcgroup-*.rpm container-selinux-*.rpm tar-*.rpm cri-tools-*.rpm
+     fi
      cd -
 fi
 # go version || goinstall=1
@@ -119,26 +166,44 @@ else
      echo "安装contained..."
      rpm -ivh rpms/containerd-*${dist}.${ARCH}.rpm
      systemctl enable containerd.service
-     systemctl restart containerd.service
+fi
+if [ $usedocker == 0 ];then 
+    mkdir -p /etc/containerd && containerd config default | sudo tee /etc/containerd/config.toml > /dev/null 2>&1
+    if [ $baseline != "120" ]; then
+        sed -i "s#sandbox_image = \"registry.k8s.io/pause:.*\"#sandbox_image = \"$imagerepo/pause:$pause_version\"#" /etc/containerd/config.toml
+        sed -ri 's#SystemdCgroup = false#SystemdCgroup = true#' /etc/containerd/config.toml 
+    else
+        sed -i "s#sandbox_image = \"k8s.gcr.io/pause:.*\"#sandbox_image = \"docker.ctyun.cn:60001/base-x86_64/pause:$pause_version\"#"  /etc/containerd/config.toml
+    fi
+    systemctl restart containerd.service
 fi
 if [ $usedocker == 1 ];then
-    which docker || dockerinstall=1
+     docker -v || dockerinstall=1
     if [ $dockerinstall -eq  0 ]; then
         echo "检查到Docker已安装!"
 	[ $(rpm -q $(rpm -qf $(which docker)) --qf %{version} | awk -F '.' '{print $1}') -le 18 ] && \
-        (rpm -e runc --nodeps; rpm -ivh rpms/runc-1.1.3-*${dist}.${ARCH}.rpm;)
+        (rpm -e runc --nodeps; rpm -ivh rpms/runc-*${dist}.${ARCH}.rpm;)
     else
         echo "安装docker..."
+        if [[ $baseline == "120" || $baseline == "129" ]]; then
+            dockername="docker"
+        else
+            dockername="moby"
+        fi
         rm -rf /etc/docker/daemon.json #This file should be delete, or start service will fail. Offline mode does NOT need this file
-        rpm -ivh rpms/docker-*${dist}.${ARCH}.rpm
+        rpm -ivh rpms/${dockername}-*${dist}.${ARCH}.rpm
     fi
 
         sleep 5
         systemctl enable docker
         systemctl daemon-reload
         systemctl restart docker
-else
-    sockoption="--cri-socket /run/cri-containerd/cri-containerd.sock"
+        echo "Docker 安装完成. "
+        if [ $install_on_docker == 0 ]; then
+            exit
+        fi
+elif [ $baseline == "120" ]; then
+    sockoption="--cri-socket /run/containerd/containerd.sock"
     sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
 fi
 if [ "x$onlyinstall" == "xdocker" ];then
@@ -153,9 +218,9 @@ else
     echo "安装k8s rpms..."
     cd rpms
     if [ "$nodetype" == "worker" ];then
-        rpm -ivh kubernetes-kubelet-*${dist}.${ARCH}.rpm kubernetes-client-*${dist}.${ARCH}.rpm kubernetes-node-*${dist}.${ARCH}.rpm kubernetes-kubeadm-*${dist}.${ARCH}.rpm
+        rpm -ivh --nodeps --force kubernetes-kubelet-*${dist}.${ARCH}.rpm kubernetes-client-*${dist}.${ARCH}.rpm kubernetes-node-*${dist}.${ARCH}.rpm kubernetes-kubeadm-*${dist}.${ARCH}.rpm
     elif [ "$nodetype" == "master" ];then
-        rpm -ivh kubernetes-*${dist}.${ARCH}.rpm
+        rpm -ivh --nodeps --force kubernetes-*${dist}.${ARCH}.rpm
     else
         echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
     fi
@@ -169,9 +234,7 @@ if [ ! -d /opt/cni ];then
     mkdir -p /opt/cni
     ln -s /usr/libexec/cni /opt/cni/bin
 fi
-if [ "x$onlyinstall" == "xk8s" ];then
-    echo "K8s 安装完成. Exit" && exit
-fi
+
 
 if [ ! -f /etc/kubernetes/admin.conf ];then
     echo -e "\033[44;37m 设置k8s \033[0m"
@@ -181,18 +244,32 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
     swapoff -a
     grep ^nameserver /etc/resolv.conf || (chmod a+w /etc/resolv.conf && echo "nameserver 114.114.114.114" >> /etc/resolv.conf)
+    modprobe br_netfilter
+    sed -i 's/net.ipv4.ip_forward=0/net.ipv4.ip_forward=1/g' /etc/sysctl.conf
+    sysctl --system > /dev/null 2>&1
     echo -e "\033[44;37m 加载k8s镜像 \033[0m"
     cd tar-${ARCH}/
-    for i in `ls *.tar`;do
-        if [ $usedocker == 1 ];then
-            docker load -i $i
-        else
-            ctr image import $i
+
+    if ls *.tar 1> /dev/null 2>&1; then
+        for i in *.tar; do
+            if [ $usedocker == 1 ]; then
+                docker load -i "$i"
+            else
+                ctr -n k8s.io images import "$i"
+            fi
+        done
+        cd -
+
+        if [ "x$onlyinstall" == "xk8s" ]; then
+            echo "rpm和镜像已安装完成！Exit." && exit
         fi
-    done
-    cd -
+    else
+        echo "没有找到 *.tar 文件，镜像未完成安装。"&& exit
+    fi
+    
+
     if [ "$nodetype" == "master" ];then
-        kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
+        kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=$k8s_version
         #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
         #cp config/kubeadm-template.yaml kubeadm.yaml
         #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
@@ -210,14 +287,15 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         if [[ $master_taint = "<none>" ]];then
             echo "不存在污点！"
         else
-            kubectl taint node $master_name $master_taint-
-            kubectl taint node $master_name node.kubernetes.io/not-ready-
+            kubectl taint node --all $master_name $master_taint-
+            kubectl taint node --all $master_name node.kubernetes.io/not-ready-
         fi
         #rm -rf kubeadm.yaml
         echo  -e "\033[44;37m master结点全部部署完成，请拷贝kubeadm join命令行备用 \033[0m"
     elif [ "$nodetype" == "worker" ];then 
         echo  -e "\033[44;37m 请运行master配置完成后提示的kubeadm join命令行 \033[0m"
     else
-        echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
+        exit  # echo "Please specify the \'nodetype\' correctly through the \'-n option."
     fi
 fi
+

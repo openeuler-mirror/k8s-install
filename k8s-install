@@ -1,12 +1,16 @@
 #!/bin/bash
 set -e
 source variable.sh
-imagerepo=$IMAGE_REPO/base-`arch`
-#imagerepo=docker.ctyun.cn:60001/base-`arch`
+imagerepo=$IMAGE_REPO
+imagerepo=registry.aliyuncs.com/google_containers
+imageflnrepo=registry.cn-hangzhou.aliyuncs.com/k8s-install-flannel
 podnetwork=10.244.0.0/16
 usedocker=1
+usetemprepo=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
+basearch=$(arch)
+
 
 help() {
     echo "Usage:"
@@ -18,14 +22,16 @@ help() {
     echo "-c reset and clean current node"
     echo "-h print help message"
     echo "-i ONLYINSTALL package docker or k8s, without any config"
-    echo "-d DIST, ctl2 or ctl3"
-    echo "-n NODETYPE, master or worker"
-    echo "-t CONTAINERTYPE, docker or containerd"
+    echo "-d DIST, e.g. ctl2 or ctl3 or ctl4 or oe2309 or oe2403"
+    echo "-n NODETYPE, e.g. master or worker"
+    echo "-b BASELINE, e.g. 120 or 125 or 129(DEFUALT)"
+    echo "-t CONTAINERTYPE, e.g. docker or containerd"
     exit -1
 }
 
 install_package() {
     local package=$1
+    local installparam=$2
     local version_key=$(echo "${package^^}" | tr '-' '_')_VERSION
     local version=${!version_key}
 
@@ -34,8 +40,14 @@ install_package() {
         return 1
     fi
 
-    echo "执行: yum install -y ${package}-${version}"
-    yum install -y "${package}-${version}"
+    if rpm -q "${package}-${version}.*" > /dev/null 2>&1; then
+        echo "${package}-${version} 已安装"
+        return 0
+    fi
+
+    echo "执行: yum install -y ${package} ${installparam}"
+    yum install -y $package $installparam 
+    # yum install -y $package-$version.$dist $installparam  # for ctyunos 
 }
 
 [[ $# == 0 ]] && help && exit
@@ -47,7 +59,7 @@ while getopts 'i:d:n:t:b:uch' OPT; do
                echo "unsupport onlyinstall value $OPTARG..." && exit
            fi
         ;;
-        d) if [ "$OPTARG" == "ctl2" ] || [ "$OPTARG" == "ctl3" ];then
+        d) if [[ "$OPTARG" =~ ^(ctl2|ctl3|ctl4|oe2403|oe2309)$ ]];then
                if [[ "$OPTARG" == "ctl2" && `rpm --eval %{dist}` == ".ctl3" ]] || [[ "$OPTARG" == "ctl3" && `rpm --eval %{dist}` == ".ctl2" ]];then
                    echo "$OPTARG is not suitable for current distrubution" && exit
                else
@@ -80,19 +92,19 @@ while getopts 'i:d:n:t:b:uch' OPT; do
            done
            exit 0
            ;;
-        b)
-           pkg_version=$OPTARG
-            if [ "$pkg_version" = "120" ]; then 
-                set_version_120
-            elif [ "$pkg_version" = "125" ]; then
-                set_version_125
-            elif [ "$pkg_version" = "129" ]; then
-                set_version_129
-            else 
-                echo "Invalid version specified!"
+        b)  case "$OPTARG" in
+                "120"|"125"|"129")
+                baseline=$OPTARG && echo "baseline is set as $OPTARG.."
+		        set_version_${OPTARG}
+		        k8s_version=${KUBERNETES_VERSION}
+                pause_version=${PAUSE_VERSION}
+                ;;
+            *)
+                echo "Invalid version specified! ?${pkg_version}?"
                 exit 1 
-            fi
-           ;;
+                ;;
+            esac
+            ;;
         c) echo "clean k8s setup..."
            kubeadm reset -f
            rm -rf /etc/cni/*
@@ -108,55 +120,133 @@ while getopts 'i:d:n:t:b:uch' OPT; do
     esac
 done
 
+if [[ $baseline != "120" && $usedocker == 1 ]]; then
+      if [ x$onlyinstall == "xk8s" ]; then
+          echo "${baseline}基线暂不支持使用docker部署k8s,仅安装docker请使用 -i docker"
+          exit
+      fi
+fi
+if [ "x$onlyinstall" == "xdocker" ];then
+    usedocker=1
+fi
+
 echo "开始一键安装模式，该过程需要使用root"
 [ `whoami` == "root" ] || exit
 echo -e "\033[44;37m 安装基础库 \033[0m"
-yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
-install_package criu
-install_package libcgroup
 
-grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
+yum install -y libcgroup 
+
+if [[ $baseline == "120" && $dist != ct* ]]; then
+    echo "切换至120源"
+    cp config/ctyunos2.repo /etc/yum.repos.d/
+    install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
+    ctrd_install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
+    yum_repo="ctyunos2.repo"
+    usetemprepo=1
+elif [[ $baseline == "125" && $dist != ct* ]]; then
+    echo "切换至125基线源.."
+    cp config/openEuler2309.repo  /etc/yum.repos.d/ --update
+    #添加129源（使用特定containerd版本）
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    install_para="--disablerepo=* --enablerepo=OS-2309 --enablerepo=everything-2309 --enablerepo=EPOL-2309"
+    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
+    yum_repo="openEuler2*"
+    usetemprepo=1
+elif [[ $baseline == "129" && $dist != "oe2403" && $dist != ct* ]]; then
+    echo "使用129基线源"
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
+    yum_repo="openEuler2403.repo"
+    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
+    usetemprepo=1
+fi
+yum clean all 
+yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
+
+#grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
 echo -e "\033[44;37m 安装 runc/containerd/docker \033[0m"
-install_package runc
-install_package containerd
+install_package  runc "${install_para}"
+install_package  containerd "${ctrd_install_para}"
+if [ $usedocker == 0 ];then 
+    mkdir -p /etc/containerd && containerd config default | sudo tee /etc/containerd/config.toml > /dev/null 2>&1
+    if [ $baseline != "120" ]; then
+        sed -i "s#sandbox_image = \"registry.k8s.io/pause:.*\"#sandbox_image = \"$imagerepo/pause:$pause_version\"#" /etc/containerd/config.toml
+        sed -ri 's#SystemdCgroup = false#SystemdCgroup = true#' /etc/containerd/config.toml 
+    else
+        sed -i "s#sandbox_image = \"k8s.gcr.io/pause:.*\"#sandbox_image = \"$imagerepo/pause:$pause_version\"#"  /etc/containerd/config.toml
+    fi
+    systemctl enable containerd
+    systemctl restart containerd.service
+fi
 if [ $usedocker == 1 ];then
+    if [[  $baseline == "120" || $baseline == "129" ]]; then
+        dockername="docker"
+    else
+        dockername="moby-engine moby-client moby"
+    fi
     if which docker > /dev/null 2>&1; then
         [ $(rpm -q $(rpm -qf $(which docker)) --qf %{version} | awk -F '.' '{print $1}') -le 18 ] && \
-        (rpm -e runc --nodeps; yum install -y runc-1.1.3-23;)
+        (rpm -e runc --nodeps; yum install -y runc;)
     else
-        install_package docker-cli
-        install_package docker
+        install_package ${dockername} "${install_para}"
     fi
 
     if [ ! -f /etc/docker/daemon.json ];then
-        cp /etc/k8s-install/daemon.json /etc/docker/daemon.json
+        mkdir -p /etc/docker
+        cp config/daemon.json /etc/docker/daemon.json
     fi
     sleep 15
     systemctl enable docker
     systemctl daemon-reload
     systemctl restart docker
     imagecmd="docker pull $imagerepo"
+    imageflncmd="docker pull $imageflnrepo"
+    if [ $baseline != "120" ]; then
+        echo "Docker 安装完毕，${baseline}基线容器运行时不支持docker，请使用containerd. Exit" && exit
+    fi
 else
-    imagecmd="ctr i pull --plain-http $imagerepo"
-    sockoption="--cri-socket /run/cri-containerd/cri-containerd.sock"
-    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
+    imagecmd="ctr -n k8s.io image pull $imagerepo"
+    imageflncmd="ctr -n k8s.io image pull $imageflnrepo"
 fi
+
 if [ "x$onlyinstall" == "xdocker" ];then
     echo "Docker 安装完成. Exit" && exit
 fi
 
 echo -e "\033[44;37m 安装 k8s rpms \033[0m"
+echo "安装 k8s 依赖.."
+yum install -y socat conntrack-tools ${install_para}
+echo "依赖安装完毕!"
+if [[ $baseline == "120" && $usedocker == 0 ]];then
+    sockoption="--cri-socket /run/containerd/containerd.sock"
+    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
+fi
 if [ "$nodetype" == "worker" ];then
-    install_package kubernetes-kubelet
-    install_package kubernetes-client
-    install_package kubernetes-node
-    install_package kubernetes-kubeadm
+   install_package kubernetes-kubelet "${install_para}"
+   install_package kubernetes-client "${install_para}"
+   install_package kubernetes-kubeadm "${install_para}"
+    if rpm -q "kubernetes-node-${k8s_version}" > /dev/null 2>&1; then
+        echo "kubernetes-node-${k8s_version} 已安装"
+    else
+        yum download kubernetes-node-${k8s_version} 
+        rpm -ivh --nodeps kubernetes-node*
+        rm -f kubernetes-node*
+    fi
+
 elif [ "$nodetype" == "master" ];then
-    install_package kubernetes-client
-    install_package kubernetes-kubeadm
-    install_package kubernetes-master
-    install_package kubernetes-kubelet
-    install_package kubernetes-node
+    install_package kubernetes-client "${install_para}"
+    install_package kubernetes-kubeadm "${install_para}"
+    install_package kubernetes-master "${install_para}"
+    install_package kubernetes-kubelet "${install_para}"
+
+    if rpm -q "kubernetes-node-${k8s_version}" > /dev/null 2>&1; then
+        echo "kubernetes-node-${k8s_version} 已安装"
+    else
+        yum download kubernetes-node-${k8s_version} 
+        rpm -ivh --nodeps kubernetes-node*
+        rm -f kubernetes-node*
+    fi
+
     #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
 else
     echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
@@ -165,13 +255,19 @@ systemctl enable kubelet
 
 if [ ! -d /opt/cni ];then
     echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
-    install_package containernetworking-plugins
+    yum install -y containernetworking-plugins ${install_para}
     mkdir -p /opt/cni
     ln -s /usr/libexec/cni /opt/cni/bin
 fi
-if [ "x$onlyinstall" == "xk8s" ];then
-    echo "K8s 安装完成. Exit" && exit
+if [[ $baseline != "120" || $usedocker == 1 ]]; then
+    echo -e "\033[44;37m 安装crictl \033[0m"
+    install_package cri-tools "${install_para}"
 fi
+if [ $usetemprepo == 1 ]; then
+    echo "移除临时源"
+    rm -f /etc/yum.repos.d/${yum_repo}
+fi
+
 
 if [ ! -f /etc/kubernetes/admin.conf ];then
     echo -e "\033[44;37m 设置k8s \033[0m"
@@ -180,16 +276,27 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     systemctl disable firewalld.service
     sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
     swapoff -a
+    modprobe br_netfilter
+    sed -i 's/net.ipv4.ip_forward=0/net.ipv4.ip_forward=1/g' /etc/sysctl.conf
+    sysctl --system > /dev/null 2>&1
     grep ^nameserver /etc/resolv.conf || (chmod a+w /etc/resolv.conf && echo "nameserver 114.114.114.114" >> /etc/resolv.conf)
     #可根据版本需要编辑修改各镜像版本
     for image_name in "${!images[@]}"; do
         version_var="${images[$image_name]}"
         version="${!version_var}"
-        ${imagecmd}/${image_name}:${version}
+        if [[ "${image_name}" != "flannel" && "${image_name}" != "flannel-cni-plugin" ]]; then
+            ${imagecmd}/${image_name}:${version}
+        else
+            ${imageflncmd}/${image_name}:${version}
+        fi
     done
     
+    if [ "x$onlyinstall" == "xk8s" ]; then
+        echo "rpm和镜像已安装完成！Exit." && exit   
+    fi
+
     if [ "$nodetype" == "master" ];then
-        kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=v1.20.2
+        kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=$k8s_version
         #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
         #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
         #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
@@ -197,8 +304,8 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         mkdir -p $HOME/.kube
         cp /etc/kubernetes/admin.conf $HOME/.kube/config
         cp /etc/kubernetes/admin.conf ~/.kube/config
-        chown $(id -u):$(id -g) $HOME/.kube/config
-        sed "s/ARCH/`arch`/g" /etc/k8s-install/flannel.yaml | kubectl apply -f -
+       	chown $(id -u):$(id -g) $HOME/.kube/config
+        sed "s/ARCH/`arch`/g" config/flannel.yaml | kubectl apply -f -
         sleep 5
         echo -e "\033[44;37m 去除k8s污点 \033[0m"
         master_name=$(kubectl get node | grep master | awk '{print $1}')
@@ -206,8 +313,8 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         if [[ $master_taint = "<none>" ]];then
             echo "不存在污点！"
         else
-            kubectl taint node $master_name $master_taint-
-            kubectl taint node $master_name node.kubernetes.io/not-ready-
+            kubectl taint node --all $master_name $master_taint-
+            kubectl taint node --all $master_name node.kubernetes.io/not-ready-
         fi
         #rm -rf kubeadm.yaml
         echo  -e "\033[44;37m master结点全部部署完成，请拷贝kubeadm join命令行备用 \033[0m"

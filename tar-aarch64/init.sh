@@ -1,29 +1,33 @@
 #! /bin/bash
-
 build_version=$1
 source ../variable.sh 
 version_function="set_version_${build_version}"
 if declare -f "$version_function" > /dev/null; then
     $version_function
+    k8s_version=${KUBERNETES_VERSION}
 else
     echo "Version function $version_function not found. Exiting."
     exit 1
 fi
 
-rm -f *.tar
+#rm -f *.tar
 
 # pull docker images.
 for image_name in "${!images[@]}"; do
     # 获取镜像版本
     image_version="${images[$image_name]}"
     version="${!image_version}"
-    full_image_name="${IMAGE_REPO}/base-aarch64/${image_name}:${version}"
-    # 执行docker pull & docker save 命令
+    if [[ $image_name != flannel* ]];then
+        full_image_name="${IMAGE_REPO}/${image_name}:${version}"
+    else
+        full_image_name="${FLN_IMAGE_REPO}/${image_name}:${version}"
+    fi
+    # 执行containerd images pull & containerd export 命令
     echo "Pulling image"
-    docker pull "$full_image_name"
+    ctr images pull --all-platforms "$full_image_name" 
 
-    echo "save docker images to tar"
-    docker save "$full_image_name" -o ${image_name}.tar
+    echo "save containerd images to tar"
+    ctr images export  ${image_name}-${k8s_version}.tar "$full_image_name" --all-platforms
 done
 
 echo "All images have been pulled and saved."

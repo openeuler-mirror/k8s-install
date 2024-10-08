@@ -1,0 +1,18 @@
+#!/bin/bash
+
+dist=("oe2309")
+baseline=("125" "129")
+docker_125_rpms="libcgroup docker-runc containerd moby moby-engine moby-client container-selinux tar"
+docker_129_rpms="libcgroup runc containerd docker docker-engine docker-client container-selinux tar"
+for d in ${dist[@]}; do
+    if [ $d == "oe2309" ]; then
+        for b in ${baseline[@]}; do
+            echo -e "\e[34mTest: only install docker   Param: ${d} ${b}\e[0m"
+            ./k8s-install -i docker -d $d -b $b 
+	    rpmlist=docker_${b}_rpms
+	    rpm -e ${!rpmlist} --nodeps
+	    echo -e "\e[34mTest pass\e[0m"
+        done
+    fi
+done
+
