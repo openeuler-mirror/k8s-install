@@ -222,7 +222,7 @@ sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables ne
   ./k8s-install -d oe2403 -b 129 -t containerd -n master 
   ```
 
-- 出现 **"Your Kubernetes contro-plane has initialized sucessfully!"** 字样表示部署成功
+- 出现 **"Your Kubernetes contro-plane has initialized successfully!"** 字样表示部署成功
 
 - 复制并界面显示的kubeadm join指令
 
