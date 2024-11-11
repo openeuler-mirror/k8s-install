@@ -24,7 +24,7 @@ help() {
     echo "-i ONLYINSTALL package docker or k8s, without any config"
     echo "-d DIST, e.g. ctl2 or ctl3 or ctl4 or oe2309 or oe2403"
     echo "-n NODETYPE, e.g. master or worker"
-    echo "-b BASELINE, e.g. 120 or 125 or 129(DEFUALT)"
+    echo "-b BASELINE, e.g. 120 or 125 or 129(DEFAULT)"
     echo "-t CONTAINERTYPE, e.g. docker or containerd"
     exit -1
 }
