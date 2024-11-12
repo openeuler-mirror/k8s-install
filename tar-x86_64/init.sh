@@ -4,7 +4,6 @@ source ../variable.sh
 version_function="set_version_${build_version}"
 if declare -f "$version_function" > /dev/null; then
     $version_function
-    k8s_version=${KUBERNETES_VERSION}
 else
     echo "Version function $version_function not found. Exiting."
     exit 1
@@ -27,7 +26,7 @@ for image_name in "${!images[@]}"; do
     ctr images pull "$full_image_name"
 
     echo "save containerd images to tar"
-    ctr images export  ${image_name}-${k8s_version}.tar "$full_image_name"
+    ctr images export  ${image_name}-${KUBERNETES_VERSION}.tar "$full_image_name"
 done
 
 echo "All images have been pulled and saved."

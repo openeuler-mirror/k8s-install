@@ -25,7 +25,7 @@ while getopts 'd:b:a:' OPT; do
                 echo "Version function $version_function not found. Exiting." && exit
             fi
             version_function="set_version_${OPTARG}"
-	    build_version=$OPTARG
+	        build_version=$OPTARG
             $version_function
             ;;
         d)  case "$OPTARG" in

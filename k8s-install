@@ -1,24 +1,21 @@
 #!/bin/bash
 set -e
 source variable.sh
-imagerepo=$IMAGE_REPO
-imagerepo=registry.aliyuncs.com/google_containers
-imageflnrepo=registry.cn-hangzhou.aliyuncs.com/k8s-install-flannel
 podnetwork=10.244.0.0/16
-usedocker=1
+runtime_type=docker
 usetemprepo=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
-basearch=$(arch)
+
 
 
 help() {
     echo "Usage:"
-    echo "Install: $0 <-i ONLYINSTALL>"
-    echo "Setup: $0 <-d DIST> <-n NODETYPE> <-t CONTAINERTYPE>"
+    echo "Install: $0 <-i ONLYINSTALL> <-d DIST> <-b BASELINE>"
+    echo "Setup: $0 <-d DIST> <-b BASELINE> <-n NODETYPE> <-t CONTAINERTYPE>"
     echo "Other options: $0 [-c] [-h]"
     echo "Description:"
-    echo "without -i will install and setup current node with -d -n and -t"
+    echo "without -i will install and setup current node with -d -b -n and -t"
     echo "-c reset and clean current node"
     echo "-h print help message"
     echo "-i ONLYINSTALL package docker or k8s, without any config"
@@ -32,6 +29,7 @@ help() {
 install_package() {
     local package=$1
     local installparam=$2
+    local dist=$3
     local version_key=$(echo "${package^^}" | tr '-' '_')_VERSION
     local version=${!version_key}
 
@@ -46,8 +44,11 @@ install_package() {
     fi
 
     echo "执行: yum install -y ${package} ${installparam}"
-    yum install -y $package $installparam 
-    # yum install -y $package-$version.$dist $installparam  # for ctyunos 
+    if [[ "$dist" == "oe*" ]];then
+        yum install -y "${package}" "${installparam}" # for oula
+    else
+        yum install -y "${package}-${version}.$dist"  # for ctyunos 
+    fi
 }
 
 [[ $# == 0 ]] && help && exit
@@ -60,7 +61,7 @@ while getopts 'i:d:n:t:b:uch' OPT; do
            fi
         ;;
         d) if [[ "$OPTARG" =~ ^(ctl2|ctl3|ctl4|oe2403|oe2309)$ ]];then
-               if [[ "$OPTARG" == "ctl2" && `rpm --eval %{dist}` == ".ctl3" ]] || [[ "$OPTARG" == "ctl3" && `rpm --eval %{dist}` == ".ctl2" ]];then
+               if [[ ".$OPTARG" != `rpm --eval %{dist}` ]];then
                    echo "$OPTARG is not suitable for current distrubution" && exit
                else
                    dist=$OPTARG && echo "dist is set as $OPTARG..."
@@ -75,10 +76,8 @@ while getopts 'i:d:n:t:b:uch' OPT; do
                echo "unsupport node type $OPTARG..." && exit
            fi
         ;;
-        t) if [ "$OPTARG" == "docker" ];then
-               usedocker=1 && echo "usedocker is set as 1..."
-           elif [ "$OPTARG" == "containerd" ];then
-               usedocker=0 && echo "usedocker is set as 0..."
+        t) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "containerd" ];then
+               runtime_type=$OPTARG && echo "runtime_type is set as $OPTARG..."
            else
                echo "unsupport container engine type $OPTARG..." && exit
            fi
@@ -96,8 +95,6 @@ while getopts 'i:d:n:t:b:uch' OPT; do
                 "120"|"125"|"129")
                 baseline=$OPTARG && echo "baseline is set as $OPTARG.."
 		        set_version_${OPTARG}
-		        k8s_version=${KUBERNETES_VERSION}
-                pause_version=${PAUSE_VERSION}
                 ;;
             *)
                 echo "Invalid version specified! ?${pkg_version}?"
@@ -120,41 +117,42 @@ while getopts 'i:d:n:t:b:uch' OPT; do
     esac
 done
 
-if [[ $baseline != "120" && $usedocker == 1 ]]; then
-      if [ x$onlyinstall == "xk8s" ]; then
-          echo "${baseline}基线暂不支持使用docker部署k8s,仅安装docker请使用 -i docker"
-          exit
-      fi
+# 检查是否指定了 -d 参数
+if [ -z "$dist" ]; then
+    help
+    echo "Error: -d DIST parameter is required."
 fi
-if [ "x$onlyinstall" == "xdocker" ];then
-    usedocker=1
+
+if [[ $baseline != "120" && "x$runtime_type" == "xdocker" && "x$onlyinstall" != "xdocker" ]]; then
+    echo "${baseline}基线暂不支持使用docker部署k8s,该基线只能用-t containerd部署k8s; 仅安装docker请使用 -i docker"
+    exit
 fi
 
 echo "开始一键安装模式，该过程需要使用root"
 [ `whoami` == "root" ] || exit
 echo -e "\033[44;37m 安装基础库 \033[0m"
 
-yum install -y libcgroup 
+yum install -y libcgroup container-selinux 
 
 if [[ $baseline == "120" && $dist != ct* ]]; then
     echo "切换至120源"
-    cp config/ctyunos2.repo /etc/yum.repos.d/
+    cp /etc/k8s-install/ctyunos2.repo /etc/yum.repos.d/
     install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
     ctrd_install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
     yum_repo="ctyunos2.repo"
     usetemprepo=1
 elif [[ $baseline == "125" && $dist != ct* ]]; then
     echo "切换至125基线源.."
-    cp config/openEuler2309.repo  /etc/yum.repos.d/ --update
+    cp /etc/k8s-install/openEuler2309.repo  /etc/yum.repos.d/ --update
     #添加129源（使用特定containerd版本）
-    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    cp /etc/k8s-install/openEuler2403.repo /etc/yum.repos.d/ --update
     install_para="--disablerepo=* --enablerepo=OS-2309 --enablerepo=everything-2309 --enablerepo=EPOL-2309"
     ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
     yum_repo="openEuler2*"
     usetemprepo=1
 elif [[ $baseline == "129" && $dist != "oe2403" && $dist != ct* ]]; then
     echo "使用129基线源"
-    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    cp /etc/k8s-install/openEuler2403.repo /etc/yum.repos.d/ --update
     install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
     yum_repo="openEuler2403.repo"
     ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
@@ -165,86 +163,91 @@ yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" 
 
 #grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
 echo -e "\033[44;37m 安装 runc/containerd/docker \033[0m"
-install_package  runc "${install_para}"
-install_package  containerd "${ctrd_install_para}"
-if [ $usedocker == 0 ];then 
-    mkdir -p /etc/containerd && containerd config default | sudo tee /etc/containerd/config.toml > /dev/null 2>&1
+install_package  runc "${install_para}" "$dist"
+install_package  containerd "${ctrd_install_para}" "$dist"
+if [ "x$runtime_type" == "xcontainerd" ];then
+    mkdir -p /etc/containerd && containerd config default | sudo tee /etc/containerd/config.toml > /dev/null 2>&1 
     if [ $baseline != "120" ]; then
-        sed -i "s#sandbox_image = \"registry.k8s.io/pause:.*\"#sandbox_image = \"$imagerepo/pause:$pause_version\"#" /etc/containerd/config.toml
-        sed -ri 's#SystemdCgroup = false#SystemdCgroup = true#' /etc/containerd/config.toml 
+        sed -i "s#sandbox_image = \"registry.k8s.io/pause:.*\"#sandbox_image = \"${IMAGE_REPO}/pause:${PAUSE_VERSION}\"#" /etc/containerd/config.toml
+        sed -i 's#SystemdCgroup = false#SystemdCgroup = true#' /etc/containerd/config.toml 
     else
-        sed -i "s#sandbox_image = \"k8s.gcr.io/pause:.*\"#sandbox_image = \"$imagerepo/pause:$pause_version\"#"  /etc/containerd/config.toml
+        sed -i "s#sandbox_image = \"k8s.gcr.io/pause:.*\"#sandbox_image = \"${IMAGE_REPO}/pause:${PAUSE_VERSION}\"#"  /etc/containerd/config.toml
     fi
     systemctl enable containerd
     systemctl restart containerd.service
+
+    sockoption="--cri-socket /run/containerd/containerd.sock"
+    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
+
+    imagecmd="ctr -n k8s.io image pull ${IMAGE_REPO}"
+    imageflncmd="ctr -n k8s.io image pull ${FLN_IMAGE_REPO}"
 fi
-if [ $usedocker == 1 ];then
+
+if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
     if [[  $baseline == "120" || $baseline == "129" ]]; then
         dockername="docker"
     else
-        dockername="moby-engine moby-client moby"
+        dockername="moby"
     fi
     if which docker > /dev/null 2>&1; then
         [ $(rpm -q $(rpm -qf $(which docker)) --qf %{version} | awk -F '.' '{print $1}') -le 18 ] && \
         (rpm -e runc --nodeps; yum install -y runc;)
     else
-        install_package ${dockername} "${install_para}"
+        install_package ${dockername} "${install_para}" "$dist"
     fi
+
+    if [[ $baseline == "120" && $dist == ct* ]]; then
+        install_package "docker-cli" "${install_para}" "$dist"
+    fi    
 
     if [ ! -f /etc/docker/daemon.json ];then
         mkdir -p /etc/docker
-        cp config/daemon.json /etc/docker/daemon.json
+        cp /etc/k8s-install/daemon.json /etc/docker/daemon.json
+        if [ $baseline == "125" ]; then
+            cp /etc/docker/daemon.json /etc/docker/daemon.conf
+        fi
     fi
     sleep 15
     systemctl enable docker
     systemctl daemon-reload
     systemctl restart docker
-    imagecmd="docker pull $imagerepo"
-    imageflncmd="docker pull $imageflnrepo"
-    if [ $baseline != "120" ]; then
-        echo "Docker 安装完毕，${baseline}基线容器运行时不支持docker，请使用containerd. Exit" && exit
-    fi
-else
-    imagecmd="ctr -n k8s.io image pull $imagerepo"
-    imageflncmd="ctr -n k8s.io image pull $imageflnrepo"
+    imagecmd="docker pull ${IMAGE_REPO}"
+    imageflncmd="docker pull ${FLN_IMAGE_REPO}"
+    echo "Docker 安装完成."
 fi
 
 if [ "x$onlyinstall" == "xdocker" ];then
-    echo "Docker 安装完成. Exit" && exit
+    exit
 fi
 
 echo -e "\033[44;37m 安装 k8s rpms \033[0m"
-echo "安装 k8s 依赖.."
-yum install -y socat conntrack-tools ${install_para}
+yum install -y socat conntrack-tools
 echo "依赖安装完毕!"
-if [[ $baseline == "120" && $usedocker == 0 ]];then
-    sockoption="--cri-socket /run/containerd/containerd.sock"
-    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
-fi
+
 if [ "$nodetype" == "worker" ];then
-   install_package kubernetes-kubelet "${install_para}"
-   install_package kubernetes-client "${install_para}"
-   install_package kubernetes-kubeadm "${install_para}"
-    if rpm -q "kubernetes-node-${k8s_version}" > /dev/null 2>&1; then
-        echo "kubernetes-node-${k8s_version} 已安装"
+   install_package kubernetes-kubelet "${install_para}" "$dist"
+   install_package kubernetes-client "${install_para}" "$dist"
+   install_package kubernetes-kubeadm "${install_para}" "$dist"
+    if rpm -q "kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist" > /dev/null 2>&1; then
+        echo "kubernetes-node-${KUBERNETES_NODE_VERSION} 已安装"
     else
-        yum download kubernetes-node-${k8s_version} 
-        rpm -ivh --nodeps kubernetes-node*
-        rm -f kubernetes-node*
+        yum download kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist 
+        rpm -ivh --nodeps kubernetes-node-${KUBERNETES_NODE_VERSION}*
+        rm -f kubernetes-node-${KUBERNETES_NODE_VERSION}*
     fi
 
 elif [ "$nodetype" == "master" ];then
-    install_package kubernetes-client "${install_para}"
-    install_package kubernetes-kubeadm "${install_para}"
-    install_package kubernetes-master "${install_para}"
-    install_package kubernetes-kubelet "${install_para}"
+    install_package kubernetes-client "${install_para}" "$dist"
+    install_package kubernetes-kubeadm "${install_para}" "$dist"
+    install_package kubernetes-master "${install_para}" "$dist"
+    install_package kubernetes-kubelet "${install_para}" "$dist"
 
-    if rpm -q "kubernetes-node-${k8s_version}" > /dev/null 2>&1; then
-        echo "kubernetes-node-${k8s_version} 已安装"
+    if rpm -q "kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist" > /dev/null 2>&1; then
+        echo "kubernetes-node-${KUBERNETES_NODE_VERSION} 已安装"
     else
-        yum download kubernetes-node-${k8s_version} 
-        rpm -ivh --nodeps kubernetes-node*
-        rm -f kubernetes-node*
+        yum download kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist 
+        rpm -ivh --nodeps kubernetes-node-${KUBERNETES_NODE_VERSION}*
+        rm -f kubernetes-node-${KUBERNETES_NODE_VERSION}*
     fi
 
     #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
@@ -255,14 +258,16 @@ systemctl enable kubelet
 
 if [ ! -d /opt/cni ];then
     echo -e "\033[44;37m 安装k8s cni插件 \033[0m"
-    yum install -y containernetworking-plugins ${install_para}
+    yum install -y containernetworking-plugins 
     mkdir -p /opt/cni
     ln -s /usr/libexec/cni /opt/cni/bin
 fi
-if [[ $baseline != "120" || $usedocker == 1 ]]; then
-    echo -e "\033[44;37m 安装crictl \033[0m"
-    install_package cri-tools "${install_para}"
-fi
+
+echo -e "\033[44;37m 安装crictl \033[0m"
+install_package cri-tools "${install_para}" "$dist"
+
+
+
 if [ $usetemprepo == 1 ]; then
     echo "移除临时源"
     rm -f /etc/yum.repos.d/${yum_repo}
@@ -292,11 +297,11 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     done
     
     if [ "x$onlyinstall" == "xk8s" ]; then
-        echo "rpm和镜像已安装完成！Exit." && exit   
+        echo "rpm和镜像已安装完成！" && exit   
     fi
 
     if [ "$nodetype" == "master" ];then
-        kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=$k8s_version
+        kubeadm init $sockoption --image-repository=${IMAGE_REPO} --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=${KUBERNETES_VERSION}
         #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
         #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
         #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
@@ -305,7 +310,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         cp /etc/kubernetes/admin.conf $HOME/.kube/config
         cp /etc/kubernetes/admin.conf ~/.kube/config
        	chown $(id -u):$(id -g) $HOME/.kube/config
-        sed "s/ARCH/`arch`/g" config/flannel.yaml | kubectl apply -f -
+        sed "s/ARCH/`arch`/g" /etc/k8s-install/flannel.yaml | kubectl apply -f -
         sleep 5
         echo -e "\033[44;37m 去除k8s污点 \033[0m"
         master_name=$(kubectl get node | grep master | awk '{print $1}')

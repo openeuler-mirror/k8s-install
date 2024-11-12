@@ -1,10 +1,9 @@
 #!/bin/bash
 set -e
 source variable.sh
-imagerepo=registry.aliyuncs.com/google_containers
 podnetwork=10.244.0.0/16
-usedocker=1
-baseline=129 #defualt
+runtime_type=docker
+baseline=129 #default
 baseinstall=0
 goinstall=0
 runcinstall=0
@@ -18,8 +17,8 @@ ARCH=`arch`
 
 help() {
     echo "Usage:"
-    echo "Install: $0 <-i ONLYINSTALL>"
-    echo "Setup: $0 <-d DIST> <-n NODETYPE> <-t CONTAINERTYPE>"
+    echo "Install: $0 <-i ONLYINSTALL> <-d DIST> <-b BASELINE>"
+    echo "Setup: $0 <-d DIST> <-b BASELINE> <-n NODETYPE> <-t CONTAINERTYPE>"
     echo "Other options: $0 [-c] [-h]"
     echo "Description:"
     echo "without -i will install and setup current node with -d -n and -t"
@@ -33,19 +32,6 @@ help() {
     exit -1
 }
 [[ $# == 0 ]] && help && exit
-check_distribution() {
-    local arg="$1"
-    local current_dist="$(rpm --eval %{dist})"
-    if [[ "$arg" == oe* ]]; then
-        current_dist=".${arg}"
-    fi
-    if [ ".${arg}" != "$current_dist" ]; then
-        echo "$arg is not suitable for current distribution" && exit 1
-    else
-        dist=$arg
-        echo "dist is set as $arg..."
-    fi
-}
 
 while getopts 'i:d:n:t::b:uch' OPT; do
     case $OPT in
@@ -61,7 +47,11 @@ while getopts 'i:d:n:t::b:uch' OPT; do
             ;;
         d)  case "$OPTARG" in
                 "ctl2"|"ctl3"|"ctl4"|"oe2403"|"oe2309")
-                    check_distribution "$OPTARG"
+                    if [[ ".$OPTARG" != `rpm --eval %{dist}` ]];then
+                        echo "$OPTARG is not suitable for current distrubution" && exit
+                    else
+                        dist=$OPTARG && echo "dist is set as $OPTARG..."
+                    fi
                     ;;
                 *)
                     echo "unsupported dist type $OPTARG..." && exit 1
@@ -74,10 +64,8 @@ while getopts 'i:d:n:t::b:uch' OPT; do
                echo "unsupport node type $OPTARG..." && exit
            fi
         ;;
-        t) if [ "$OPTARG" == "docker" ];then
-               usedocker=1 && echo "usedocker is set as 1..."
-           elif [ "$OPTARG" == "containerd" ];then
-               usedocker=0 && echo "usedocker is set as 0..."
+        t) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "containerd" ];then
+               runtime_type=$OPTARG && echo "runtime_type is set as $OPTARG..."
            else
                echo "unsupport container engine type $OPTARG..." && exit
            fi
@@ -86,12 +74,6 @@ while getopts 'i:d:n:t::b:uch' OPT; do
                 "120"|"125"|"129")
                 baseline=$OPTARG && echo "baseline is set as $OPTARG.."
 		        set_version_${OPTARG}
-		        k8s_version=${KUBERNETES_VERSION}
-                pause_version=${PAUSE_VERSION}
-                if [ $baseline == "120" ]; then
-                    imagerepo=docker.ctyun.cn:60001/base-`arch`
-                    install_on_docker=1
-                fi
                 ;;
             *)
                 echo "unsupport k8s baseline $OPTARG.."&& exit 1
@@ -122,11 +104,15 @@ while getopts 'i:d:n:t::b:uch' OPT; do
     esac
 done
 
-if [[ $baseline != "120" && $usedocker == 1 ]]; then
-    if [ $onlyinstall == "k8s" ]; then
-        echo "${baseline}基线暂不支持使用docker部署k8s,仅安装docker请使用 -i docker"
-        exit
-    fi
+# 检查是否指定了 -d 参数
+if [ -z "$dist" ]; then
+    help
+    echo "Error: -d DIST parameter is required."
+fi
+
+if [[ $baseline != "120" && "x$runtime_type" == "xdocker" && "x$onlyinstall" != "xdocker" ]]; then
+    echo "${baseline}基线暂不支持使用docker部署k8s,该基线只能用-t containerd部署k8s; 仅安装docker请使用 -i docker"
+    exit
 fi
 
 echo "开始一键安装模式，该过程需要使用root"
@@ -167,17 +153,22 @@ else
      rpm -ivh rpms/containerd-*${dist}.${ARCH}.rpm
      systemctl enable containerd.service
 fi
-if [ $usedocker == 0 ];then 
+if [ "x$runtime_type" == "xcontainerd" ];then 
     mkdir -p /etc/containerd && containerd config default | sudo tee /etc/containerd/config.toml > /dev/null 2>&1
     if [ $baseline != "120" ]; then
-        sed -i "s#sandbox_image = \"registry.k8s.io/pause:.*\"#sandbox_image = \"$imagerepo/pause:$pause_version\"#" /etc/containerd/config.toml
-        sed -ri 's#SystemdCgroup = false#SystemdCgroup = true#' /etc/containerd/config.toml 
+        sed -i "s#sandbox_image = \"registry.k8s.io/pause:.*\"#sandbox_image = \"${IMAGE_REPO}/pause:${PAUSE_VERSION}\"#" /etc/containerd/config.toml
+        sed -i 's#SystemdCgroup = false#SystemdCgroup = true#' /etc/containerd/config.toml 
     else
-        sed -i "s#sandbox_image = \"k8s.gcr.io/pause:.*\"#sandbox_image = \"docker.ctyun.cn:60001/base-x86_64/pause:$pause_version\"#"  /etc/containerd/config.toml
+        #sed -i "s#sandbox_image = \"k8s.gcr.io/pause:.*\"#sandbox_image = \"docker.ctyun.cn:60001/base-x86_64/pause:$PAUSE_VERSION\"#"  /etc/containerd/config.toml
+        sed -i "s#sandbox_image = \"k8s.gcr.io/pause:.*\"#sandbox_image = \"${IMAGE_REPO}/pause:${PAUSE_VERSION}\"#"  /etc/containerd/config.toml
     fi
     systemctl restart containerd.service
+
+    sockoption="--cri-socket /run/containerd/containerd.sock"
+    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
 fi
-if [ $usedocker == 1 ];then
+
+if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
      docker -v || dockerinstall=1
     if [ $dockerinstall -eq  0 ]; then
         echo "检查到Docker已安装!"
@@ -199,16 +190,11 @@ if [ $usedocker == 1 ];then
         systemctl daemon-reload
         systemctl restart docker
         echo "Docker 安装完成. "
-        if [ $install_on_docker == 0 ]; then
+        if [ "x$onlyinstall" == "xdocker" ]; then
             exit
         fi
-elif [ $baseline == "120" ]; then
-    sockoption="--cri-socket /run/containerd/containerd.sock"
-    sedcmd='-e "s,dockershim.sock,containerd/containerd.sock,g"'
 fi
-if [ "x$onlyinstall" == "xdocker" ];then
-    echo "Docker 安装完成. Exit" && exit
-fi
+
 
 echo -e "\033[44;37m 安装 k8s \033[0m"
 rpm -qa | grep kubelet && k8sinstall=1
@@ -252,7 +238,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
 
     if ls *.tar 1> /dev/null 2>&1; then
         for i in *.tar; do
-            if [ $usedocker == 1 ]; then
+            if [ "x$runtime_type" == "xdocker" ]; then
                 docker load -i "$i"
             else
                 ctr -n k8s.io images import "$i"
@@ -269,7 +255,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     
 
     if [ "$nodetype" == "master" ];then
-        kubeadm init $sockoption --image-repository=$imagerepo --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=$k8s_version
+        kubeadm init $sockoption --image-repository=${IMAGE_REPO} --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=${KUBERNETES_VERSION}
         #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
         #cp config/kubeadm-template.yaml kubeadm.yaml
         #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
