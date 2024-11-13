@@ -16,11 +16,14 @@ help() {
 while getopts 'd:b:a:' OPT; do
     case $OPT in
         b)  if [ "$OPTARG" == "120" ];then
-                rpmlist_cloud=("libcgroup" "runc" "containerd" "docker" "containernetworking-plugins" "kubernetes-kubelet" "kubernetes-client" "kubernetes-node" "kubernetes-kubeadm" "kubernetes-master")
-                rpmlist="protobuf zlib-devel vim-filesystem vim-common libnetfilter_queue libnetfilter_cttimeout libnetfilter_cthelper gpm-libs vim-enhanced emacs-filesystem protobuf-devel protobuf-c conntrack-tools-help conntrack-tools socat criu"
-            elif [[ "$OPTARG" == "125" || "$OPTARG" == "129" ]]; then
-                 rpmlist_cloud=("libcgroup" "runc" "containerd" "moby-client" "moby" "moby-engine" "containernetworking-plugins" "kubernetes-kubelet" "kubernetes-client" "kubernetes-node" "kubernetes-kubeadm" "kubernetes-master")
-		 rpmlist="conntrack-tools-help conntrack-tools socat cri-tools container-selinux"
+                rpmlist_cloud=("runc" "containerd" "docker" "docker-cli" "docker-engine" "cri-tools" "kubernetes-kubelet" "kubernetes-client" "kubernetes-node" "kubernetes-kubeadm" "kubernetes-master")
+                rpmlist="libcgroup containernetworking-plugins tar protobuf zlib-devel vim-filesystem vim-common libnetfilter_queue libnetfilter_cttimeout libnetfilter_cthelper gpm-libs vim-enhanced emacs-filesystem protobuf-devel protobuf-c conntrack-tools-help conntrack-tools socat criu"
+            elif [ "$OPTARG" == "125" ]; then
+                rpmlist_cloud=("runc" "containerd" "moby-client" "moby" "moby-engine" "kubernetes-kubelet" "cri-tools" "kubernetes-client" "kubernetes-node" "kubernetes-kubeadm" "kubernetes-master")
+		        rpmlist="libcgroup conntrack-tools-help conntrack-tools socat container-selinux containernetworking-plugins tar"
+            elif [ "$OPTARG" == "129" ]; then
+                rpmlist_cloud=("runc" "containerd" "docker" "docker-client" "docker-engine" "kubernetes-kubelet" "cri-tools" "kubernetes-client" "kubernetes-node" "kubernetes-kubeadm" "kubernetes-master")
+		        rpmlist="libcgroup conntrack-tools-help conntrack-tools socat container-selinux containernetworking-plugins tar"
             else
                 echo "Version function $version_function not found. Exiting." && exit
             fi
@@ -58,7 +61,7 @@ if [[ $dist == oe* ]]; then
         ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
         yum_repo="openEuler2*"
         usetemprepo=1
-	rpmlist_cloud=("libcgroup" "docker-runc" "containerd" "moby-client" "moby" "moby-engine" "containernetworking-plugins" "kubernetes-kubelet" "kubernetes-client" "kubernetes-node" "kubernetes-kubeadm" "kubernetes-master" "tar")
+	    rpmlist_cloud=("docker-runc" "containerd" "moby-client" "moby" "moby-engine" "critools" "kubernetes-kubelet" "kubernetes-client" "kubernetes-node" "kubernetes-kubeadm" "kubernetes-master")
     elif [[ $build_version == "129" ]]; then
         cp ../config/openEuler2403.repo /etc/yum.repos.d/ --update
         install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
@@ -80,15 +83,15 @@ for pkg in ${rpmlist_cloud[@]}; do
     if [[ ! -z "$version_var" && $pkg != "containerd" ]]; then
 	    if [[ $dist == oe*  ]];then
        		 #yum download --repo=$dist --repo=${dist}-update --forcearch=$arch "${pkg}-${version_var}" 
-		yum download ${pkg}.${arch}  $install_para
+		    yum download ${pkg}.${arch}  $install_para
 	    else
-		yum download  --forcearch=$arch ${pkg}-${version_var}.${dist} $install_para
+		    yum download  --forcearch=$arch ${pkg}-${version_var}.${dist} $install_para
 	    fi
     elif [ $pkg == "containerd" ];then
 	    if [[ $dist == oe*  ]];then
-		yum download ${pkg}.${arch} $ctrd_install_para
+		    yum download ${pkg}.${arch} $ctrd_install_para
 	    else
-		yum download  --forcearch=$arch ${pkg}-${version_var}.${dist} $ctrd_install_para
+		    yum download  --forcearch=$arch ${pkg}-${version_var}.${dist} $ctrd_install_para
 	    fi
     else
         echo "No version specified for $pkg, skipping..."

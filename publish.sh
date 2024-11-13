@@ -102,7 +102,7 @@ git status | grep "nothing to commit"
 [[ $? == 0 ]] || (echo "Some git changes still not committed. exit.." && exit)
 rm -rf /tmp/k8s-install
 mkdir -p /tmp/k8s-install
-cp -r config k8s-install /tmp/k8s-install
+cp -r config k8s-install variable.sh /tmp/k8s-install 
 cd /tmp
 tar zcf k8s-install.tgz k8s-install/
 cd -
