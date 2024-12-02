@@ -16,7 +16,7 @@
 
 ### 1.  **参数说明**
 
-**k8s-inatll和k8s-install-offline脚本参数说明：**
+**k8s-install和k8s-install-offline脚本参数说明：**
 
 `-i  `: 仅安装到某一步为止。需要额外参数，可与其它参数组合使用。
 

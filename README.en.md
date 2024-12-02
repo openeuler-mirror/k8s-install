@@ -16,7 +16,7 @@
 
 ## Typical Ansible work flow
 * sudo $cmd -d ctl2 -n master -t docker -b 120   On master node, and recode 'kubeadm join' output line
-* sudo $cmd -d ctl2 -n worker -t docker -b 120   On each woker node, and execute 'kubeadm join' output line
+* sudo $cmd -d ctl2 -n worker -t docker -b 120   On each worker node, and execute 'kubeadm join' output line
 
 ## Notes
 - Use k8s-install when you can reach yum and ctyun harbor by network, this is published by k8s-install rpm in yum
