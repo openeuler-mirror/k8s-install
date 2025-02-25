@@ -14,6 +14,13 @@ install_on_docker=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
 ARCH=`arch`
+etcd_insert_content="- --cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
+kube_apiserver_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
+kube_controller_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA
+"
+kube_scheduler_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
+kubelet_insert_content="tlsCipherSuites: [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA]"
+
 
 help() {
     echo "Usage:"
@@ -247,7 +254,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         cd -
 
         if [ "x$onlyinstall" == "xk8s" ]; then
-            echo "rpm和镜像已安装完成！Exit." && exit
+            echo "rpm和镜像已安装完成！" 
         fi
     else
         echo "没有找到 *.tar 文件，镜像未完成安装。"&& exit
@@ -266,6 +273,12 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         chown $(id -u):$(id -g) $HOME/.kube/config
         sed "s/ARCH/`arch`/g" config/flannel.yaml | kubectl apply -f -
         #mkdir -p /run/flannel;cp config/subnet.env /run/flannel/;cp config/10-flannel.conflist /etc/cni/net.d/ #In case files missing
+        sed -i "/--trusted-ca-file=/a \    $etcd_insert_content" /etc/kubernetes/manifests/etcd.yaml
+        sed -i "/--tls-private-key-file=/a \    $kube_apiserver_insert_content" /etc/kubernetes/manifests/kube-apiserver.yaml
+        sed -i "/--use-service-account-credentials=true/a \    $kube_controller_insert_content" /etc/kubernetes/manifests/kube-controller-manager.yaml
+        sed -i "/--leader-elect=true/a \    $kube_scheduler_insert_content" /etc/kubernetes/manifests/kube-scheduler.yaml
+        sed -i "$ a\\$kubelet_insert_content" /var/lib/kubelet/config.yaml
+        systemctl restart kubelet
         sleep 5
         echo -e "\033[44;37m 去除k8s污点 \033[0m"
         master_name=$(kubectl get node | grep master | awk '{print $1}')
@@ -279,7 +292,10 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         #rm -rf kubeadm.yaml
         echo  -e "\033[44;37m master结点全部部署完成，请拷贝kubeadm join命令行备用 \033[0m"
     elif [ "$nodetype" == "worker" ];then 
-        echo  -e "\033[44;37m 请运行master配置完成后提示的kubeadm join命令行 \033[0m"
+        echo  -e "\033[44;37m 请执行master配置完成后提示的kubeadm join命令行加入集群 \033[0m"
+        echo  -e "\033[44;37m 执行kubeadm join命令加入master后，请执行以下命令以更新 kubelet 配置文件并重启kubelet服务 \033[0m"
+        echo "sed -i \"\$ a\\\\tlsCipherSuites: [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA]\" /var/lib/kubelet/config.yaml"
+        echo "systemctl restart kubelet"
     else
         exit  # echo "Please specify the \'nodetype\' correctly through the \'-n option."
     fi
