@@ -6,8 +6,12 @@ runtime_type=docker
 usetemprepo=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
-
-
+etcd_insert_content="- --cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
+kube_apiserver_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
+kube_controller_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA
+"
+kube_scheduler_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
+kubelet_insert_content="tlsCipherSuites: [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA]"
 
 help() {
     echo "Usage:"
@@ -136,23 +140,23 @@ yum install -y libcgroup container-selinux
 
 if [[ $baseline == "120" && $dist != ct* ]]; then
     echo "切换至120源"
-    cp /etc/k8s-install/ctyunos2.repo /etc/yum.repos.d/
+    cp config/ctyunos2.repo /etc/yum.repos.d/
     install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
     ctrd_install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
     yum_repo="ctyunos2.repo"
     usetemprepo=1
 elif [[ $baseline == "125" && $dist != ct* ]]; then
     echo "切换至125基线源.."
-    cp /etc/k8s-install/openEuler2309.repo  /etc/yum.repos.d/ --update
+    cp config/openEuler2309.repo  /etc/yum.repos.d/ --update
     #添加129源（使用特定containerd版本）
-    cp /etc/k8s-install/openEuler2403.repo /etc/yum.repos.d/ --update
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
     install_para="--disablerepo=* --enablerepo=OS-2309 --enablerepo=everything-2309 --enablerepo=EPOL-2309"
     ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
     yum_repo="openEuler2*"
     usetemprepo=1
 elif [[ $baseline == "129" && $dist != "oe2403" && $dist != ct* ]]; then
     echo "使用129基线源"
-    cp /etc/k8s-install/openEuler2403.repo /etc/yum.repos.d/ --update
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
     install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
     yum_repo="openEuler2403.repo"
     ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
@@ -202,7 +206,7 @@ if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
 
     if [ ! -f /etc/docker/daemon.json ];then
         mkdir -p /etc/docker
-        cp /etc/k8s-install/daemon.json /etc/docker/daemon.json
+        cp config/daemon.json /etc/docker/daemon.json
         if [ $baseline == "125" ]; then
             cp /etc/docker/daemon.json /etc/docker/daemon.conf
         fi
@@ -250,10 +254,11 @@ elif [ "$nodetype" == "master" ];then
         rm -f kubernetes-node-${KUBERNETES_NODE_VERSION}*
     fi
 
-    #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
+    #cp config/kubeadm-template.yaml kubeadm.yaml
 else
     echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
 fi
+
 systemctl enable kubelet
 
 if [ ! -d /opt/cni ];then
@@ -297,20 +302,26 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     done
     
     if [ "x$onlyinstall" == "xk8s" ]; then
-        echo "rpm和镜像已安装完成！" && exit   
+        echo "rpm和镜像已安装完成！"    
     fi
 
     if [ "$nodetype" == "master" ];then
         kubeadm init $sockoption --image-repository=${IMAGE_REPO} --pod-network-cidr=$podnetwork --apiserver-advertise-address=$ip --kubernetes-version=${KUBERNETES_VERSION}
         #默认使用参数配置（因为可做到无人工修改），也可以解注如下代码并手工修改kubeadm-template.yaml，通过config方式完成init。
-        #cp /etc/k8s-install/kubeadm-template.yaml kubeadm.yaml
+        #cp config/kubeadm-template.yaml kubeadm.yaml
         #sed -i -e "s/advertiseAddress: ip/advertiseAddress: $ip/g" -e "s/name: master/name: $name/g" -e "s/ARCH/`arch`/g" $sedcmd kubeadm.yaml
         #kubeadm init --config kubeadm.yaml
         mkdir -p $HOME/.kube
         cp /etc/kubernetes/admin.conf $HOME/.kube/config
         cp /etc/kubernetes/admin.conf ~/.kube/config
        	chown $(id -u):$(id -g) $HOME/.kube/config
-        sed "s/ARCH/`arch`/g" /etc/k8s-install/flannel.yaml | kubectl apply -f -
+        sed "s/ARCH/`arch`/g" config/flannel.yaml | kubectl apply -f -
+        sed -i "/--trusted-ca-file=/a \    $etcd_insert_content" /etc/kubernetes/manifests/etcd.yaml
+        sed -i "/--tls-private-key-file=/a \    $kube_apiserver_insert_content" /etc/kubernetes/manifests/kube-apiserver.yaml
+        sed -i "/--use-service-account-credentials=true/a \    $kube_controller_insert_content" /etc/kubernetes/manifests/kube-controller-manager.yaml
+        sed -i "/--leader-elect=true/a \    $kube_scheduler_insert_content" /etc/kubernetes/manifests/kube-scheduler.yaml
+        sed -i "$ a\\$kubelet_insert_content" /var/lib/kubelet/config.yaml
+        systemctl restart kubelet
         sleep 5
         echo -e "\033[44;37m 去除k8s污点 \033[0m"
         master_name=$(kubectl get node | grep master | awk '{print $1}')
@@ -324,7 +335,10 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         #rm -rf kubeadm.yaml
         echo  -e "\033[44;37m master结点全部部署完成，请拷贝kubeadm join命令行备用 \033[0m"
     elif [ "$nodetype" == "worker" ];then
-        echo  -e "\033[44;37m 请运行master配置完成后提示的kubeadm join命令行 \033[0m"
+        echo  -e "\033[44;37m 请执行master配置完成后提示的kubeadm join命令行加入集群 \033[0m"
+        echo  -e "\033[44;37m 执行kubeadm join命令加入master后，请执行以下命令以更新 kubelet 配置文件并重启kubelet服务 \033[0m"
+        echo "sed -i \"\$ a\\\\tlsCipherSuites: [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA]\" /var/lib/kubelet/config.yaml"
+        echo "systemctl restart kubelet"
     else
         echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
     fi
