@@ -6,12 +6,6 @@ runtime_type=docker
 usetemprepo=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
-etcd_insert_content="- --cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
-kube_apiserver_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
-kube_controller_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA
-"
-kube_scheduler_insert_content="- --tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA"
-kubelet_insert_content="tlsCipherSuites: [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA]"
 
 help() {
     echo "Usage:"
@@ -23,7 +17,7 @@ help() {
     echo "-c reset and clean current node"
     echo "-h print help message"
     echo "-i ONLYINSTALL package docker or k8s, without any config"
-    echo "-d DIST, e.g. ctl2 or ctl3 or ctl4 or oe2309 or oe2403"
+    echo "-d DIST, e.g. ctl2 or ctl3 or ctl4 or oe2309 or oe2403 or oe2503"
     echo "-n NODETYPE, e.g. master or worker"
     echo "-b BASELINE, e.g. 120 or 125 or 129(DEFAULT)"
     echo "-t CONTAINERTYPE, e.g. docker or containerd"
@@ -64,7 +58,7 @@ while getopts 'i:d:n:t:b:uch' OPT; do
                echo "unsupport onlyinstall value $OPTARG..." && exit
            fi
         ;;
-        d) if [[ "$OPTARG" =~ ^(ctl2|ctl3|ctl4|oe2403|oe2309)$ ]];then
+        d) if [[ "$OPTARG" =~ ^(ctl2|ctl3|ctl4|oe2403|oe2309|oe2503)$ ]];then
                if [[ ".$OPTARG" != `rpm --eval %{dist}` ]];then
                    echo "$OPTARG is not suitable for current distrubution" && exit
                else
@@ -337,7 +331,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
     elif [ "$nodetype" == "worker" ];then
         echo  -e "\033[44;37m 请执行master配置完成后提示的kubeadm join命令行加入集群 \033[0m"
         echo  -e "\033[44;37m 执行kubeadm join命令加入master后，请执行以下命令以更新 kubelet 配置文件并重启kubelet服务 \033[0m"
-        echo "sed -i \"\$ a\\\\tlsCipherSuites: [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA]\" /var/lib/kubelet/config.yaml"
+        echo "sed -i \"\$ a\\\\$kubelet_insert_content\" /var/lib/kubelet/config.yaml"
         echo "systemctl restart kubelet"
     else
         echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
