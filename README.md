@@ -6,6 +6,7 @@
 
 | **操作系统**                                                 | **Kubernetes**版本             | **容器运行时**          |
 | ------------------------------------------------------------ | ------------------------------ | ----------------------- |
+| **openEuler25.03**                                           |**1.29.1**                      | **仅containerd**
 | **openEuler24.03LTS \| ctyunos4系列**                        | **1.29.1**                     | **仅containerd**        |
 | **openEuler23.09**                                          | **1.29.1 \| 1.25.3**           | **仅containerd**        |
 | **openEuler22.03LTS \| ctyunos3系列**                        | **1.29.1 \| 1.25.3 \| 1.20.2** | **containerd/docker*** |
@@ -30,7 +31,9 @@
 
 ``-d`` : 当前操作系统版本。需要额外参数，可与其它参数组合使用。
 
-&emsp;&emsp;&emsp;&emsp;可选值有`oe2403`  `oe2309`  `ctl4`  `ctl3`  `ctl2` （oe2203 oe2003暂未支持）
+&emsp;&emsp;&emsp;&emsp;可选值有`oe2503` `oe2403`  `oe2309`  `ctl4`  `ctl3`  `ctl2` （oe2203 oe2003暂未支持）
+
+&emsp;&emsp;&emsp;&emsp;`oe2503` : 代表按照`openEuler-25.03`系统基线进行安装配置
 
 &emsp;&emsp;&emsp;&emsp;`oe2403` : 代表按照`openEuler-24.03-LTS`系统基线进行安装配置
 
@@ -134,6 +137,7 @@ yum autoremove runc containerd docker kubectl kubeadm
 #### （1）下载离线rpm包和镜像
 
 - 网盘下载：https://cloud.189.cn/web/share?code=jUrIzer2AZJ3（访问码：5tn5）
+          https://cloud.189.cn/web/share?code=iMjABbZbArUz（访问码：uze2）
 
 #### （2）离线部署
 
@@ -255,7 +259,12 @@ sysctl net.bridge.bridge-nf-call-iptables net.bridge.bridge-nf-call-ip6tables ne
   	--discovery-token-ca-cert-hash sha256:xxxxxxxxxxx
   ```
 
-- 出现 **"This node has joined the cluster"** 字样则部署成功，在master结点上使用kubectl label node命令设定结点角色
+- 出现 **"This node has joined the cluster"** 字样则部署成功，加入master后，请在当前worker节点执行以下命令以更新 kubelet 配置文件并重启kubelet服务
+```shell
+   sed -i "$ a\\tlsCipherSuites: [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384,TLS_RSA_WITH_AES_128_CBC_SHA,TLS_RSA_WITH_AES_256_CBC_SHA]" /var/lib/kubelet/config.yaml
+   systemctl restart kubelet
+  ```
+- 在master结点上使用kubectl label node命令设定结点角色
 
   ```shell
    kubectl label node k8s-worker1 node-role.kubernetes.io/master
