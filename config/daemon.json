@@ -13,5 +13,6 @@
     "docker.ctyun.cn:60001",
     "docker-hb02.ctyun.cn:60001",
     "artifactory.k8s.gz3.ctyun.cn:31344"
-  ]
+  ],
+  "exec-opts": ["native.cgroupdriver=systemd"]
 }
