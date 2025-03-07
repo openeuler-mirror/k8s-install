@@ -49,7 +49,38 @@ install_package() {
     fi
 }
 
+change_baseline() {
+  if [[ $baseline == "120" && $dist != ct* ]]; then
+    echo "切换至120源"
+    cp config/openEuler2203.repo /etc/yum.repos.d/
+    install_para="--disablerepo=* --enablerepo=everything-2203 --enablerepo=update-2203 --enablerepo=EPOL-2203"
+    ctrd_install_para=$install_para
+    yum_repo="openEuler2203.repo"
+    usetemprepo=1
+  elif [[ $baseline == "125" && $dist != ct* ]]; then
+    echo "切换至125基线源.."
+    cp config/openEuler2309.repo  /etc/yum.repos.d/ --update
+    #添加129源（使用特定containerd版本）
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    install_para="--disablerepo=* --enablerepo=OS-2309 --enablerepo=everything-2309 --enablerepo=EPOL-2309"
+    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
+    yum_repo="openEuler2*"
+    usetemprepo=1
+  elif [[ $baseline == "129" && $dist != "oe2403" && $dist != ct* ]]; then
+    echo "使用129基线源"
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
+    yum_repo="openEuler2403.repo"
+    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
+    usetemprepo=1
+  fi
+  yum clean all
+  yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
+}
+
+#Main
 [[ $# == 0 ]] && help && exit
+[[ ! -d config ]] && echo "请切换到源码目录或/etc/k8s-install目录运行" && exit
 while getopts 'i:d:n:t:b:uch' OPT; do
     case $OPT in
         i) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "k8s" ];then
@@ -59,11 +90,7 @@ while getopts 'i:d:n:t:b:uch' OPT; do
            fi
         ;;
         d) if [[ "$OPTARG" =~ ^(ctl2|ctl3|ctl4|oe2403|oe2309|oe2503)$ ]];then
-               if [[ ".$OPTARG" != `rpm --eval %{dist}` ]];then
-                   echo "$OPTARG is not suitable for current distrubution" && exit
-               else
-                   dist=$OPTARG && echo "dist is set as $OPTARG..."
-               fi
+               dist=$OPTARG && echo "dist is set as $OPTARG..."
            else
                echo "unsupport dist type $OPTARG..." && exit
            fi
@@ -132,32 +159,9 @@ echo -e "\033[44;37m 安装基础库 \033[0m"
 
 yum install -y libcgroup container-selinux 
 
-if [[ $baseline == "120" && $dist != ct* ]]; then
-    echo "切换至120源"
-    cp config/ctyunos2.repo /etc/yum.repos.d/
-    install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
-    ctrd_install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
-    yum_repo="ctyunos2.repo"
-    usetemprepo=1
-elif [[ $baseline == "125" && $dist != ct* ]]; then
-    echo "切换至125基线源.."
-    cp config/openEuler2309.repo  /etc/yum.repos.d/ --update
-    #添加129源（使用特定containerd版本）
-    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
-    install_para="--disablerepo=* --enablerepo=OS-2309 --enablerepo=everything-2309 --enablerepo=EPOL-2309"
-    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
-    yum_repo="openEuler2*"
-    usetemprepo=1
-elif [[ $baseline == "129" && $dist != "oe2403" && $dist != ct* ]]; then
-    echo "使用129基线源"
-    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
-    install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
-    yum_repo="openEuler2403.repo"
-    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
-    usetemprepo=1
+if [[ $dist == oe2503 && $baseline != "129" ]] || [[ $dist == oe2403 && $baseline != "129" ]] || [[ $dist == oe2303 && $baseline != "125" ]] || [[ $dist == oe2203 && $baseline != "120" ]];then
+    change_baseline()
 fi
-yum clean all 
-yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
 
 #grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
 echo -e "\033[44;37m 安装 runc/containerd/docker \033[0m"
@@ -182,7 +186,7 @@ if [ "x$runtime_type" == "xcontainerd" ];then
 fi
 
 if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
-    if [[  $baseline == "120" || $baseline == "129" ]]; then
+    if [[ $dist == ct* ]] && [[  $baseline == "120" || $baseline == "129" ]]; then
         dockername="docker"
     else
         dockername="moby"
