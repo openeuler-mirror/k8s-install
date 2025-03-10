@@ -176,7 +176,7 @@ if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
         (rpm -e runc --nodeps; rpm -ivh rpms/runc-*${dist}.${ARCH}.rpm;)
     else
         echo "安装docker..."
-        if [[ $baseline == "120" || $baseline == "129" ]]; then
+        if [ $baseline == "120" || $baseline == "129" ]; then
             dockername="docker"
         else
             dockername="moby"
@@ -184,8 +184,6 @@ if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
         rm -rf /etc/docker/daemon.json #This file should be delete, or start service will fail. Offline mode does NOT need this file
         rpm -ivh rpms/${dockername}-*${dist}.${ARCH}.rpm
     fi
-
-        sleep 5
         systemctl enable docker
         systemctl daemon-reload
         systemctl restart docker
@@ -274,7 +272,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         systemctl restart kubelet
         sleep 5
         echo -e "\033[44;37m 去除k8s污点 \033[0m"
-        master_name=$(kubectl get node | grep master | awk '{print $1}')
+        master_name=$(kubectl get node | grep control-plane | awk '{print $1}')
         master_taint=$(kubectl describe node $master_name | grep Taints | awk '{print $2}')
         if [[ $master_taint = "<none>" ]];then
             echo "不存在污点！"

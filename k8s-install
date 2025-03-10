@@ -6,6 +6,8 @@ runtime_type=docker
 usetemprepo=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
+install_para=
+ctrd_install_para=
 
 help() {
     echo "Usage:"
@@ -28,23 +30,20 @@ install_package() {
     local package=$1
     local installparam=$2
     local dist=$3
-    local version_key=$(echo "${package^^}" | tr '-' '_')_VERSION
-    local version=${!version_key}
-
-    if [[ -z "$version" ]]; then
-        echo "版本未定义或为空: $version_key"
-        return 1
-    fi
-
-    if rpm -q "${package}-${version}.*" > /dev/null 2>&1; then
-        echo "${package}-${version} 已安装"
-        return 0
-    fi
-
     echo "执行: yum install -y ${package} ${installparam}"
-    if [[ "$dist" == "oe*" ]];then
-        yum install -y "${package}" "${installparam}" # for oula
+    if [[ $dist == oe* ]];then
+        yum install -y "${package}" ${installparam} # for oula
     else
+        local version_key=$(echo "${package^^}" | tr '-' '_')_VERSION
+        local version=${!version_key}
+        if [[ -z "$version" ]]; then
+            echo "版本未定义或为空: $version_key"
+            return 1
+        fi
+        if rpm -q "${package}-${version}.*" > /dev/null 2>&1; then
+            echo "${package}-${version} 已安装"
+            return 0
+        fi
         yum install -y "${package}-${version}.$dist"  # for ctyunos 
     fi
 }
@@ -160,7 +159,7 @@ echo -e "\033[44;37m 安装基础库 \033[0m"
 yum install -y libcgroup container-selinux 
 
 if [[ $dist == oe2503 && $baseline != "129" ]] || [[ $dist == oe2403 && $baseline != "129" ]] || [[ $dist == oe2303 && $baseline != "125" ]] || [[ $dist == oe2203 && $baseline != "120" ]];then
-    change_baseline()
+    change_baseline
 fi
 
 #grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
@@ -186,7 +185,7 @@ if [ "x$runtime_type" == "xcontainerd" ];then
 fi
 
 if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
-    if [[ $dist == ct* ]] && [[  $baseline == "120" || $baseline == "129" ]]; then
+    if [[ $dist == ct* ]] && [  $baseline == "120" || $baseline == "129" ]; then
         dockername="docker"
     else
         dockername="moby"
@@ -209,7 +208,7 @@ if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
             cp /etc/docker/daemon.json /etc/docker/daemon.conf
         fi
     fi
-    sleep 15
+    #sleep 15
     systemctl enable docker
     systemctl daemon-reload
     systemctl restart docker
@@ -227,32 +226,16 @@ yum install -y socat conntrack-tools
 echo "依赖安装完毕!"
 
 if [ "$nodetype" == "worker" ];then
-   install_package kubernetes-kubelet "${install_para}" "$dist"
-   install_package kubernetes-client "${install_para}" "$dist"
-   install_package kubernetes-kubeadm "${install_para}" "$dist"
-    if rpm -q "kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist" > /dev/null 2>&1; then
-        echo "kubernetes-node-${KUBERNETES_NODE_VERSION} 已安装"
-    else
-        yum download kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist 
-        rpm -ivh --nodeps kubernetes-node-${KUBERNETES_NODE_VERSION}*
-        rm -f kubernetes-node-${KUBERNETES_NODE_VERSION}*
-    fi
-
+    install_package kubernetes-kubelet "${install_para}" "$dist"
+    install_package kubernetes-client "${install_para}" "$dist"
+    install_package kubernetes-kubeadm "${install_para}" "$dist"
+    install_package kubernetes-node "${install_para}" "$dist"
 elif [ "$nodetype" == "master" ];then
     install_package kubernetes-client "${install_para}" "$dist"
     install_package kubernetes-kubeadm "${install_para}" "$dist"
     install_package kubernetes-master "${install_para}" "$dist"
     install_package kubernetes-kubelet "${install_para}" "$dist"
-
-    if rpm -q "kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist" > /dev/null 2>&1; then
-        echo "kubernetes-node-${KUBERNETES_NODE_VERSION} 已安装"
-    else
-        yum download kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist 
-        rpm -ivh --nodeps kubernetes-node-${KUBERNETES_NODE_VERSION}*
-        rm -f kubernetes-node-${KUBERNETES_NODE_VERSION}*
-    fi
-
-    #cp config/kubeadm-template.yaml kubeadm.yaml
+    install_package kubernetes-node "${install_para}" "$dist"
 else
     echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
 fi
@@ -322,7 +305,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         systemctl restart kubelet
         sleep 5
         echo -e "\033[44;37m 去除k8s污点 \033[0m"
-        master_name=$(kubectl get node | grep master | awk '{print $1}')
+        master_name=$(kubectl get node | grep control-plane | awk '{print $1}')
         master_taint=$(kubectl describe node $master_name | grep Taints | awk '{print $2}') 
         if [[ $master_taint = "<none>" ]];then
             echo "不存在污点！"
