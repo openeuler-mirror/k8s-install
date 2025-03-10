@@ -6,6 +6,8 @@ runtime_type=docker
 usetemprepo=0
 ip=$(hostname -I | awk '{print $1}')
 name=$(hostname)
+install_para=
+ctrd_install_para=
 
 help() {
     echo "Usage:"
@@ -28,28 +30,56 @@ install_package() {
     local package=$1
     local installparam=$2
     local dist=$3
-    local version_key=$(echo "${package^^}" | tr '-' '_')_VERSION
-    local version=${!version_key}
-
-    if [[ -z "$version" ]]; then
-        echo "版本未定义或为空: $version_key"
-        return 1
-    fi
-
-    if rpm -q "${package}-${version}.*" > /dev/null 2>&1; then
-        echo "${package}-${version} 已安装"
-        return 0
-    fi
-
     echo "执行: yum install -y ${package} ${installparam}"
-    if [[ "$dist" == "oe*" ]];then
-        yum install -y "${package}" "${installparam}" # for oula
+    if [[ $dist == oe* ]];then
+        yum install -y "${package}" ${installparam} # for oula
     else
+        local version_key=$(echo "${package^^}" | tr '-' '_')_VERSION
+        local version=${!version_key}
+        if [[ -z "$version" ]]; then
+            echo "版本未定义或为空: $version_key"
+            return 1
+        fi
+        if rpm -q "${package}-${version}.*" > /dev/null 2>&1; then
+            echo "${package}-${version} 已安装"
+            return 0
+        fi
         yum install -y "${package}-${version}.$dist"  # for ctyunos 
     fi
 }
 
+change_baseline() {
+  if [[ $baseline == "120" && $dist != ct* ]]; then
+    echo "切换至120源"
+    cp config/openEuler2203.repo /etc/yum.repos.d/
+    install_para="--disablerepo=* --enablerepo=everything-2203 --enablerepo=update-2203 --enablerepo=EPOL-2203"
+    ctrd_install_para=$install_para
+    yum_repo="openEuler2203.repo"
+    usetemprepo=1
+  elif [[ $baseline == "125" && $dist != ct* ]]; then
+    echo "切换至125基线源.."
+    cp config/openEuler2309.repo  /etc/yum.repos.d/ --update
+    #添加129源（使用特定containerd版本）
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    install_para="--disablerepo=* --enablerepo=OS-2309 --enablerepo=everything-2309 --enablerepo=EPOL-2309"
+    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
+    yum_repo="openEuler2*"
+    usetemprepo=1
+  elif [[ $baseline == "129" && $dist != "oe2403" && $dist != ct* ]]; then
+    echo "使用129基线源"
+    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
+    install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
+    yum_repo="openEuler2403.repo"
+    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
+    usetemprepo=1
+  fi
+  yum clean all
+  yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
+}
+
+#Main
 [[ $# == 0 ]] && help && exit
+[[ ! -d config ]] && echo "请切换到源码目录或/etc/k8s-install目录运行" && exit
 while getopts 'i:d:n:t:b:uch' OPT; do
     case $OPT in
         i) if [ "$OPTARG" == "docker" ] || [ "$OPTARG" == "k8s" ];then
@@ -59,11 +89,7 @@ while getopts 'i:d:n:t:b:uch' OPT; do
            fi
         ;;
         d) if [[ "$OPTARG" =~ ^(ctl2|ctl3|ctl4|oe2403|oe2309|oe2503)$ ]];then
-               if [[ ".$OPTARG" != `rpm --eval %{dist}` ]];then
-                   echo "$OPTARG is not suitable for current distrubution" && exit
-               else
-                   dist=$OPTARG && echo "dist is set as $OPTARG..."
-               fi
+               dist=$OPTARG && echo "dist is set as $OPTARG..."
            else
                echo "unsupport dist type $OPTARG..." && exit
            fi
@@ -132,32 +158,9 @@ echo -e "\033[44;37m 安装基础库 \033[0m"
 
 yum install -y libcgroup container-selinux 
 
-if [[ $baseline == "120" && $dist != ct* ]]; then
-    echo "切换至120源"
-    cp config/ctyunos2.repo /etc/yum.repos.d/
-    install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
-    ctrd_install_para="--disablerepo=* --enablerepo=everything-ctl2 --enablerepo=update-ctl2"
-    yum_repo="ctyunos2.repo"
-    usetemprepo=1
-elif [[ $baseline == "125" && $dist != ct* ]]; then
-    echo "切换至125基线源.."
-    cp config/openEuler2309.repo  /etc/yum.repos.d/ --update
-    #添加129源（使用特定containerd版本）
-    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
-    install_para="--disablerepo=* --enablerepo=OS-2309 --enablerepo=everything-2309 --enablerepo=EPOL-2309"
-    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
-    yum_repo="openEuler2*"
-    usetemprepo=1
-elif [[ $baseline == "129" && $dist != "oe2403" && $dist != ct* ]]; then
-    echo "使用129基线源"
-    cp config/openEuler2403.repo /etc/yum.repos.d/ --update
-    install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403 --enablerepo=EPOL-2403 --enablerepo=update-2403"
-    yum_repo="openEuler2403.repo"
-    ctrd_install_para="--disablerepo=* --enablerepo=OS-2403 --enablerepo=everything-2403  --enablerepo=update-2403"
-    usetemprepo=1
+if [[ $dist == oe2503 && $baseline != "129" ]] || [[ $dist == oe2403 && $baseline != "129" ]] || [[ $dist == oe2303 && $baseline != "125" ]] || [[ $dist == oe2203 && $baseline != "120" ]];then
+    change_baseline
 fi
-yum clean all 
-yum makecache || (echo "无法连接yum源，请将所有依赖rpm手动安装" && exit 1)
 
 #grep docker.ctyun.cn /etc/hosts || echo "124.236.120.248 docker.ctyun.cn" >> /etc/hosts
 echo -e "\033[44;37m 安装 runc/containerd/docker \033[0m"
@@ -182,7 +185,7 @@ if [ "x$runtime_type" == "xcontainerd" ];then
 fi
 
 if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
-    if [[  $baseline == "120" || $baseline == "129" ]]; then
+    if [[ $dist == ct* ]] && [  $baseline == "120" || $baseline == "129" ]; then
         dockername="docker"
     else
         dockername="moby"
@@ -205,7 +208,7 @@ if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
             cp /etc/docker/daemon.json /etc/docker/daemon.conf
         fi
     fi
-    sleep 15
+    #sleep 15
     systemctl enable docker
     systemctl daemon-reload
     systemctl restart docker
@@ -223,32 +226,16 @@ yum install -y socat conntrack-tools
 echo "依赖安装完毕!"
 
 if [ "$nodetype" == "worker" ];then
-   install_package kubernetes-kubelet "${install_para}" "$dist"
-   install_package kubernetes-client "${install_para}" "$dist"
-   install_package kubernetes-kubeadm "${install_para}" "$dist"
-    if rpm -q "kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist" > /dev/null 2>&1; then
-        echo "kubernetes-node-${KUBERNETES_NODE_VERSION} 已安装"
-    else
-        yum download kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist 
-        rpm -ivh --nodeps kubernetes-node-${KUBERNETES_NODE_VERSION}*
-        rm -f kubernetes-node-${KUBERNETES_NODE_VERSION}*
-    fi
-
+    install_package kubernetes-kubelet "${install_para}" "$dist"
+    install_package kubernetes-client "${install_para}" "$dist"
+    install_package kubernetes-kubeadm "${install_para}" "$dist"
+    install_package kubernetes-node "${install_para}" "$dist"
 elif [ "$nodetype" == "master" ];then
     install_package kubernetes-client "${install_para}" "$dist"
     install_package kubernetes-kubeadm "${install_para}" "$dist"
     install_package kubernetes-master "${install_para}" "$dist"
     install_package kubernetes-kubelet "${install_para}" "$dist"
-
-    if rpm -q "kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist" > /dev/null 2>&1; then
-        echo "kubernetes-node-${KUBERNETES_NODE_VERSION} 已安装"
-    else
-        yum download kubernetes-node-${KUBERNETES_NODE_VERSION}.$dist 
-        rpm -ivh --nodeps kubernetes-node-${KUBERNETES_NODE_VERSION}*
-        rm -f kubernetes-node-${KUBERNETES_NODE_VERSION}*
-    fi
-
-    #cp config/kubeadm-template.yaml kubeadm.yaml
+    install_package kubernetes-node "${install_para}" "$dist"
 else
     echo "Please specify the 'nodetype' correctly through the '-n' option." && exit
 fi
@@ -318,7 +305,7 @@ if [ ! -f /etc/kubernetes/admin.conf ];then
         systemctl restart kubelet
         sleep 5
         echo -e "\033[44;37m 去除k8s污点 \033[0m"
-        master_name=$(kubectl get node | grep master | awk '{print $1}')
+        master_name=$(kubectl get node | grep control-plane | awk '{print $1}')
         master_taint=$(kubectl describe node $master_name | grep Taints | awk '{print $2}') 
         if [[ $master_taint = "<none>" ]];then
             echo "不存在污点！"
