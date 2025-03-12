@@ -4,7 +4,7 @@ help() {
     echo "Setup: $0 <-d DIST> <-b BASELINE> <-a ARCH>"
     echo "Description:"
     echo "-b BASELINE, e.g. 120 or 125 or 129"
-    echo "-d DIST, e.g. ctl2 or ctl3 or ctl4 or oe2309 or oe2403"
+    echo "-d DIST, e.g. ctl2 or ctl3 or ctl4 or oe2309 or oe2403 or oe2503"
     echo "-a ARCH, e.g. x86_64 or aarch64"
     exit -1
 }
@@ -24,7 +24,7 @@ while getopts "b:d:a:" opt; do
         esac
         ;;
     d)  case "$OPTARG" in
-            "ctl2"|"ctl3"|"ctl4"|"oe2403"|"oe2309")
+            "ctl2"|"ctl3"|"ctl4"|"oe2403"|"oe2309"|"oe2503")
                 dist=$OPTARG
                 ;;
             *)
@@ -47,6 +47,10 @@ done
 
 if [ -z "$build_version" ]; then
     echo "Build version (-b) not specified. Exiting."
+    exit 1
+fi
+if [ -z "$arch" ]; then
+    echo "Arch is not specified. Exiting."
     exit 1
 fi
 if [ -z "$dist" ]; then
@@ -106,9 +110,18 @@ cp -r config k8s-install variable.sh /tmp/k8s-install
 cd /tmp
 tar zcf k8s-install.tgz k8s-install/
 cd -
-git checkout obsbuild
+
+# Wait user confirm whether check code changes into src project
+read -p "!!!!!! Do you want to check code changes into your preset src project? (yes/no) " yn
+if [[ $yn != "yes" && $yn != "y" ]];then
+    echo "Answer is:$yn. All Done!"
+    exit 0
+fi
+cd ..
+#git clone https://gitee.com/wonleing/k8s-install #Change it to you own fork project
+cd k8s-install
 mv /tmp/k8s-install.tgz .
 rpmbuild -bb --define "_sourcedir $(pwd)" *.spec  # Just a test
 git add .
-git commit -m "commit changes into obsbuild branch."
+git commit -m "commit changes into src build project."
 git push
