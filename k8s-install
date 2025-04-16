@@ -185,7 +185,7 @@ if [ "x$runtime_type" == "xcontainerd" ];then
 fi
 
 if [[ "x$runtime_type" == "xdocker" || "x$onlyinstall" == "xdocker" ]];then
-    if [[ $dist == ct* ]] && [  $baseline == "120" || $baseline == "129" ]; then
+    if [[ $dist == ct* ]] && [[  $baseline == "120" || $baseline == "129" ]]; then
         dockername="docker"
     else
         dockername="moby"
